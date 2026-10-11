@@ -12,6 +12,7 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - `src/db.js` : SQLite (`data/app.db`), l'état complet est un seul JSON + colonne `version` ; `src/sessionStore.js`.
 - `public/app.js` : toute la logique (état, calculs, rendu, événements). `public/styles.css`, `index.html`, `sw.js`.
 - `scripts/set-password.js` : `npm run set-password -- identifiant motdepasse`.
+- Logo : `public/logo.svg` (bourse ailée, fond terracotta) ; `python scripts/make-icons.py` régénère `logo.png`, `icon-192/384.png`, `icon-maskable-512.png`, `apple-touch-icon.png` (rendu Edge/Chrome sans fenêtre + Pillow).
 
 ## Modèle de données (non évident)
 - `state = { recurring: { incomes, fixedExpenses, envelopes, tags, paymentMethods }, months: { 'YYYY-MM': {...} }, settings: { weekStartDay, defaultPaymentMethodId } }`.
@@ -23,6 +24,7 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - `sw.js` : interface en réseau d'abord (repli cache après 4 s), `/api` non intercepté ; changer `VERSION` si `FILES` change. Non testable dans le navigateur intégré (pas de service worker).
 - **Installation** : bandeau masquable sur l'accueil (`fee-lezcomptes-install-hidden`) + carte « Application » des réglages. Raccourci du manifest (appui long sur l'icône) → `?action=nouveau-mouvement` → `handleLaunchAction` ouvre la modale d'ajout.
 - **Interface** (`app.js`, section « Rendu ») : pages `currentPage` = dashboard (accueil), movements, fixed, stats, settings (roue dentée en haut), budget (détail, `budgetDetailId`). Barre du bas Accueil · Mouvements · ＋ · Fixes · Stats. Feuilles = `<dialog class="sheet">` ; `openSheet` = feuille rouverte après un re-rendu (filtres, vue) ; la feuille d'ajout (`movement-modal`) et le sélecteur (`picker-sheet`) se mettent à jour sans re-rendu (`setSheetSelection`, `refreshSheetChips`) pour garder la saisie. `render()` restaure le focus des champs portant `data-focus-key`.
+- Budgets de l'accueil (option B) : « dépensé / prévu » de la semaine ; jauge = prévu brut (`env.weeks[w]`), partie hachurée = report d'un dépassement (`weeks[w] - effectiveWeeks[w]`).
 - Mouvements : toucher une ligne dévoile Modifier / Supprimer (`revealedMovementId`) ; suppression avec « Annuler » dans le toast (`#toast` hors de `#app`, `showToast(msg, libellé, fn)`). Filtres : type, budget, tag, mode de paiement (`'none'` = sans). Vues : semaine, budget, tag, paiement.
 - Les réglages réutilisent les anciens formulaires (`data-field` traités par `onChange`), restylés.
 

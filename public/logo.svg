@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Fée Lezcomptes">
+<rect width="512" height="512" rx="114" fill="#B4532F"></rect>
+<path d="M196 236 C150 170 70 160 40 196 C70 214 96 240 112 270 C80 276 60 296 52 320 C110 330 160 316 196 290 Z" fill="#FFF4E6" opacity="0.95"></path>
+<path d="M196 262 C160 250 128 254 104 270" stroke="#E9B89C" stroke-width="6" stroke-linecap="round" fill="none"></path>
+<path d="M316 236 C362 170 442 160 472 196 C442 214 416 240 400 270 C432 276 452 296 460 320 C402 330 352 316 316 290 Z" fill="#FFF4E6" opacity="0.95"></path>
+<path d="M316 262 C352 250 384 254 408 270" stroke="#E9B89C" stroke-width="6" stroke-linecap="round" fill="none"></path>
+<path d="M178 262 Q150 402 256 404 Q362 402 334 262 Q322 222 292 208 L220 208 Q190 222 178 262 Z" fill="#7A3A1E"></path>
+<path d="M178 254 Q150 394 256 396 Q362 394 334 254 Q322 214 292 200 L220 200 Q190 214 178 254 Z" fill="#F2C14E"></path>
+<path d="M300 214 Q336 240 336 300 Q336 370 290 388 Q322 350 318 296 Q314 244 286 214 Z" fill="#D9A23A"></path>
+<path d="M214 204 Q194 150 222 158 Q236 128 256 150 Q276 128 290 158 Q318 150 298 204 Z" fill="#F2C14E"></path>
+<path d="M228 196 Q228 170 240 160 M272 160 Q284 170 284 196" stroke="#D9A23A" stroke-width="6" stroke-linecap="round" fill="none"></path>
+<rect x="204" y="194" width="104" height="22" rx="11" fill="#7A3A1E"></rect>
+<path d="M296 210 Q322 232 316 256" stroke="#7A3A1E" stroke-width="8" stroke-linecap="round" fill="none"></path>
+<circle cx="318" cy="262" r="9" fill="#7A3A1E"></circle>
+<path d="M256 268 L266 292 L292 294 L272 310 L279 336 L256 321 L233 336 L240 310 L220 294 L246 292 Z" fill="#FFF4E6" opacity="0.9"></path>
+<path d="M330 152 L398 84" stroke="#3A2418" stroke-width="8" stroke-linecap="round"></path>
+<path d="M404 50 L413 74 L438 76 L419 92 L425 116 L404 102 L383 116 L389 92 L370 76 L395 74 Z" fill="#FFF4E6"></path>
+<circle cx="452" cy="132" r="6" fill="#FFF4E6"></circle>
+<circle cx="360" cy="56" r="5" fill="#FFF4E6"></circle>
+<path d="M120 414 L125 427 L138 432 L125 437 L120 450 L115 437 L102 432 L115 427 Z" fill="#FFF4E6"></path>
+<path d="M392 404 L396 414 L406 418 L396 422 L392 432 L388 422 L378 418 L388 414 Z" fill="#F2C14E"></path>
+</svg>

@@ -5,8 +5,8 @@
 // - /api/… : jamais touché ici ; l'app garde elle-même ses données (localStorage) et
 //   les synchronise au retour du réseau.
 // Changer VERSION quand la liste FILES change.
-var VERSION = 'fl-v3';
-var FILES = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.json', 'logo.png', 'icon-192.png', 'icon-384.png'];
+var VERSION = 'fl-v4';
+var FILES = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.json', 'logo.svg', 'logo.png', 'icon-192.png', 'icon-384.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 var TIMEOUT_MS = 4000;
 
 self.addEventListener('install', function (e) {

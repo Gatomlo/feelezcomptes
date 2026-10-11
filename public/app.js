@@ -985,7 +985,7 @@
   function render() {
     var app = document.getElementById('app');
     if (!booted) {
-      app.innerHTML = '<div class="loading-shell"><img class="loading-logo" src="' + BASE + '/logo.png" alt="">Chargement…</div>';
+      app.innerHTML = '<div class="loading-shell"><img class="loading-logo" src="' + BASE + '/logo.svg" alt="">Chargement…</div>';
       return;
     }
     if (!isAuthenticated) {
@@ -993,7 +993,7 @@
       return;
     }
     if (!state) {
-      app.innerHTML = '<div class="loading-shell"><img class="loading-logo" src="' + BASE + '/logo.png" alt="">Pas de connexion au serveur.<br>Le budget s’affichera dès que le réseau revient.</div>';
+      app.innerHTML = '<div class="loading-shell"><img class="loading-logo" src="' + BASE + '/logo.svg" alt="">Pas de connexion au serveur.<br>Le budget s’affichera dès que le réseau revient.</div>';
       return;
     }
     renderDeferred = false;
@@ -1038,7 +1038,7 @@
 
   function renderLoginScreen() {
     return '<div class="login-shell"><form class="login-card" data-form="login">' +
-      '<img class="login-logo" src="' + BASE + '/logo.png" alt="">' +
+      '<img class="login-logo" src="' + BASE + '/logo.svg" alt="">' +
       '<h1 class="login-title">Fée Lezcomptes</h1>' +
       '<p class="login-sub">Le budget du foyer</p>' +
       (loginError ? '<p class="login-error">' + esc(loginError) + '</p>' : '') +
@@ -1105,6 +1105,7 @@
     return ctx;
   }
   function signedTotal(moves) { return moves.reduce(function (s, m) { return s + (m.type === 'income' ? m.amount : -m.amount); }, 0); }
+  function fmtShort(n) { return fmt(n).replace(/,00(?=\s| | |€)/, ''); }
   function signedFmt(n) { return (n > 0 ? '+' : '') + fmt(n); }
   function pct(a, b) { return b > 0 ? Math.max(0, Math.min(100, (a / b) * 100)) : (a > 0 ? 100 : 0); }
 
@@ -1221,21 +1222,28 @@
     }
 
     var ranked = view.envelopes.map(function (env) {
-      var a = env.effectiveWeeks[w], s = env.spentByWeek[w];
-      return { env: env, alloc: a, spent: s, ratio: a > 0 ? s / a : (s > 0 ? 99 : 0) };
+      var a = env.effectiveWeeks[w], s = env.spentByWeek[w], p = env.weeks[w];
+      return { env: env, alloc: a, spent: s, plan: p, report: Math.max(0, p - a), ratio: a > 0 ? s / a : (s > 0 ? 99 : 0) };
     }).sort(function (a, b) { return b.ratio - a.ratio; });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
+      // Option B : « dépensé / prévu ». La jauge représente tout le prévu de la semaine ;
+      // la partie hachurée est retirée par le dépassement reporté de la semaine précédente.
       var rem = r.alloc - r.spent, over = rem < 0;
-      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '">' +
+      var foot = over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem) + (r.report ? ' après report' : '');
+      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + fmtShort(r.spent) + ' dépensés sur ' + fmtShort(r.plan) + ' prévus, ' + foot + '">' +
         '<span class="budget-tile-head"><span class="ibox sm" style="--c:' + tagColor(r.env.id) + '"><span class="emo">' + r.env.icon + '</span></span>' +
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
-        '<span class="budget-tile-rem"><b>' + fmt(rem) + '</b> ' + (over ? 'dépassé' : 'restants') + '</span>' +
-        '<span class="bar"><span style="width:' + pct(r.spent, r.alloc) + '%"></span></span>' +
+        '<span class="tile-ratio"><b>' + fmtShort(r.spent) + '</b><span>/ ' + fmtShort(r.plan) + '</span></span>' +
+        '<span class="bar plan"><span style="width:' + pct(r.spent, r.plan) + '%"></span>' +
+          (r.report ? '<i class="bar-report" style="width:' + pct(r.report, r.plan) + '%"></i>' : '') + '</span>' +
+        '<span class="tile-foot">' + foot + '</span>' +
         '</button>';
     }).join('');
+    var anyReport = ranked.some(function (r) { return r.report > 0; });
     var budgetsBlock = view.envelopes.length
       ? '<div class="budget-grid">' + tiles + '</div>' +
+        (anyReport ? '<p class="legend-line"><span class="legend-hatch"></span>report d’un dépassement de la semaine précédente</p>' : '') +
         (view.envelopes.length > 6 ? '<button type="button" class="btn-ghost" data-action="toggle-all-budgets">' + (showAllBudgets ? 'Réduire' : 'Afficher les ' + view.envelopes.length + ' budgets') + svg('chevD', 16, showAllBudgets ? 'flip' : '') + '</button>' : '')
       : '<p class="empty-card">Aucun budget ce mois-ci. <button type="button" class="link" data-action="goto-settings" data-section="settings-budgets">Créer un budget</button></p>';
 
@@ -1243,7 +1251,7 @@
     var weekMoves = view.movements.filter(function (m) { return m.weekIndex === w; });
     return renderInstallBanner() + hero +
       '<div class="week-chips">' + weekChips + '</div>' +
-      '<section class="block"><div class="block-head"><h2>Budgets</h2><span class="muted-sm">' + weekRangeLabel(selectedMonthKey, w).replace('-', ' → ') + '</span></div>' + budgetsBlock + '</section>' +
+      '<section class="block"><div class="block-head"><h2>Budgets</h2><span class="muted-sm">dépensé / prévu · ' + weekRangeLabel(selectedMonthKey, w).replace('-', ' → ') + '</span></div>' + budgetsBlock + '</section>' +
       '<section class="block"><div class="block-head"><h2>' + (w === cur ? 'Cette semaine' : 'Semaine ' + (w + 1)) + '</h2>' +
         '<button type="button" class="link" data-action="nav-movements">Tout voir</button></div>' +
         moveListHtml(weekMoves, ctx, 'Aucun mouvement cette semaine.') + '</section>';
@@ -1276,7 +1284,8 @@
         '<div class="ring"><svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r="66" class="ring-track"/><circle cx="80" cy="80" r="66" class="ring-fill' + (over ? ' over' : '') + '" stroke-dasharray="' + dash + ' 415" transform="rotate(-90 80 80)"/></svg>' +
           '<span class="ring-center"><b>' + fmt(rem) + '</b><span>' + (over ? 'dépassé' : 'restants') + '</span></span></div>' +
         '<div class="ring-facts"><span class="muted-sm">Semaine ' + (w + 1) + ' · ' + weekRangeLabel(selectedMonthKey, w) + '</span>' +
-          '<div class="fact"><span>Prévu</span><b>' + fmt(alloc) + '</b></div>' +
+          '<div class="fact"><span>Prévu</span><b>' + fmt(env.weeks[w]) + '</b></div>' +
+          (env.weeks[w] - alloc > 0.004 ? '<div class="fact report"><span>Report S' + w + '</span><b>−' + fmt(env.weeks[w] - alloc) + '</b></div>' : '') +
           '<div class="fact"><span>Dépensé</span><b>' + fmt(spent) + '</b></div>' +
           '<div class="fact sep"><span>Mois</span><b>' + fmt(env.spentTotal) + ' / ' + fmt(env.amount) + '</b></div>' +
         '</div></section>' +

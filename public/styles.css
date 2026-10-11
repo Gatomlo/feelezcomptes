@@ -144,10 +144,17 @@ button:active:not(:disabled) { transform: scale(.96); }
 .budget-tile { border: 0; background: var(--surface); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px; text-align: left; min-width: 0; }
 .budget-tile-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .budget-tile-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.budget-tile-rem { font-size: 12.5px; color: var(--muted); font-weight: 600; }
-.budget-tile-rem b { color: var(--ink); font-size: 15px; }
-.budget-tile.over .budget-tile-rem, .budget-tile.over .budget-tile-rem b { color: var(--critical); }
+.tile-ratio { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; }
+.tile-ratio b { font-family: var(--display); font-size: 19px; font-weight: 800; letter-spacing: -.3px; }
+.tile-ratio span { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.bar.plan { position: relative; height: 8px; }
+.bar-report { position: absolute; top: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--critical) 0 3px, var(--critical-soft) 3px 6px); opacity: .85; }
+.tile-foot { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.budget-tile.over .tile-ratio b, .budget-tile.over .tile-foot { color: var(--critical); }
 .budget-tile.over .bar > span { background: var(--critical); }
+.legend-line { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.legend-hatch { width: 18px; height: 8px; border-radius: 4px; flex: none; background: repeating-linear-gradient(45deg, var(--critical) 0 3px, var(--critical-soft) 3px 6px); }
+.fact.report b, .fact.report span { color: var(--critical); }
 
 /* --- Lignes de mouvement : toucher pour dévoiler les actions --- */
 .mv-list { display: flex; flex-direction: column; gap: 8px; }
