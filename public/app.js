@@ -681,75 +681,243 @@
     return fetch(BASE + url, options);
   }
 
-  var saveInFlight = false;
-  var savePending = false;
+  // --- Synchronisation et hors-ligne ---
+  // L'état vit d'abord sur l'appareil (localStorage) : chaque modification y est
+  // écrite tout de suite puis envoyée au serveur dès que possible. Le serveur numérote
+  // ses versions ; si quelqu'un a modifié le budget entre-temps (409), on fusionne à
+  // trois (dernier état serveur connu / local / serveur actuel) puis on renvoie.
+  var STORE_KEY = 'fee-lezcomptes-data';
+  var baseState = null;   // dernier état reçu du serveur : ancêtre commun de la fusion
+  var baseVersion = null;
+  var dirty = false;      // modifications locales pas encore acceptées par le serveur
+  var online = true;      // serveur joignable au dernier essai
+  var syncing = false;
+  var syncAgain = false;
+  var retryTimer = null;
+  var renderDeferred = false;
+
+  function persistLocal() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ state: state, base: baseState, version: baseVersion, dirty: dirty, user: currentUsername })); } catch (e) {}
+  }
+  function readLocal() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || null; } catch (e) { return null; }
+  }
+  function clearLocal() {
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  }
+  function clone(o) { return o == null ? o : JSON.parse(JSON.stringify(o)); }
+  function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+  function isPlainObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function idList(arr) { return arr.every(function (x) { return isPlainObj(x) && typeof x.id === 'string'; }); }
+  function scalarList(arr) { return arr.every(function (x) { return x === null || typeof x !== 'object'; }); }
+
+  // Fusion à trois (undefined = absent). Ce qui n'a changé que d'un côté est repris ;
+  // listes d'objets à `id` fusionnées élément par élément, listes simples comme des
+  // ensembles ; vrai conflit : l'appareil l'emporte, et une modification l'emporte
+  // sur une suppression.
+  function merge3(base, mine, theirs) {
+    if (sameJson(mine, theirs)) return mine;
+    if (sameJson(mine, base)) return theirs;
+    if (sameJson(theirs, base)) return mine;
+    if (isPlainObj(mine) && isPlainObj(theirs)) {
+      var bo = isPlainObj(base) ? base : {};
+      var out = {};
+      Object.keys(Object.assign({}, bo, theirs, mine)).forEach(function (k) {
+        var v = merge3(bo[k], mine[k], theirs[k]);
+        if (v !== undefined) out[k] = v;
+      });
+      return out;
+    }
+    if (Array.isArray(mine) && Array.isArray(theirs)) {
+      var ba = Array.isArray(base) ? base : [];
+      if (idList(mine) && idList(theirs) && idList(ba)) {
+        var index = function (arr) { var m = {}; arr.forEach(function (x) { m[x.id] = x; }); return m; };
+        var bm = index(ba), mm = index(mine), tm = index(theirs);
+        var ids = theirs.map(function (x) { return x.id; });
+        mine.forEach(function (x) { if (!tm[x.id]) ids.push(x.id); });
+        var res = [];
+        ids.forEach(function (id) { var v = merge3(bm[id], mm[id], tm[id]); if (v !== undefined) res.push(v); });
+        return res;
+      }
+      if (scalarList(mine) && scalarList(theirs) && scalarList(ba)) {
+        var kept = theirs.filter(function (x) { return !(ba.indexOf(x) !== -1 && mine.indexOf(x) === -1); });
+        mine.forEach(function (x) { if (ba.indexOf(x) === -1 && kept.indexOf(x) === -1) kept.push(x); });
+        return kept;
+      }
+    }
+    if (mine === undefined) return theirs;
+    return mine;
+  }
+
+  // Ne pas redessiner sous une fenêtre ouverte (saisie en cours) : on attend sa fermeture.
+  function safeRender() {
+    if (document.querySelector('#app dialog[open]')) { renderDeferred = true; return; }
+    render();
+  }
+
+  function updateSyncStatus() {
+    var el = document.getElementById('sync-status');
+    if (!el) return;
+    var show = isAuthenticated && !online;
+    el.hidden = !show;
+    if (show) el.textContent = '📴 Hors ligne' + (dirty ? ' · modifications gardées sur l’appareil' : '');
+  }
+  function setOnline(v) {
+    if (online === v) return;
+    online = v;
+    updateSyncStatus();
+  }
+  function scheduleRetry() {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(function () { if (dirty) syncNow(); else pullState(); }, 15000);
+  }
+
+  // Reçoit un état serveur : fusionne avec les modifications locales éventuelles.
+  function receiveRemote(remote, version) {
+    remote = migrateState(remote || defaultState());
+    state = (dirty && state) ? merge3(baseState, state, remote) : clone(remote);
+    baseState = clone(remote);
+    baseVersion = version;
+    persistLocal();
+  }
+  function versionOf(r) {
+    var v = r.headers.get('X-State-Version');
+    return v != null && /^\d+$/.test(v) ? Number(v) : null;
+  }
+  function handleUnauthorized() {
+    // Session expirée : on garde la copie locale (et ses modifications) pour après la reconnexion.
+    isAuthenticated = false;
+    updateSyncStatus();
+    render();
+  }
+
   function saveState() {
-    if (saveInFlight) { savePending = true; return; }
-    saveInFlight = true;
-    apiFetch('/api/state', { method: 'PUT', body: state }).then(function (r) {
-      if (r.status === 401) { isAuthenticated = false; render(); return; }
-      if (!r.ok) showToast('La sauvegarde a échoué, réessaie dans un instant.');
+    dirty = true;
+    persistLocal();
+    updateSyncStatus();
+    syncNow();
+  }
+
+  function syncNow() {
+    if (!dirty || !isAuthenticated) return;
+    if (baseVersion == null) { pullState(); return; }
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    var sent = clone(state);
+    var hadOfflineChanges = !online;
+    apiFetch('/api/state', { method: 'PUT', body: sent, headers: { 'X-Base-Version': String(baseVersion) } }).then(function (r) {
+      if (r.status === 401) { handleUnauthorized(); return; }
+      if (r.status === 409) {
+        setOnline(true);
+        return r.json().then(function (body) {
+          receiveRemote(body.state, versionOf(r));
+          syncAgain = true;
+          safeRender();
+        });
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json().then(function (body) {
+        baseState = sent;
+        baseVersion = body.version;
+        dirty = !sameJson(state, sent);
+        persistLocal();
+        setOnline(true);
+        if (hadOfflineChanges && !dirty) showToast('Modifications synchronisées avec le serveur.');
+      });
     }).catch(function () {
-      showToast('La sauvegarde a échoué, réessaie dans un instant.');
+      setOnline(false);
+      scheduleRetry();
     }).finally(function () {
-      saveInFlight = false;
-      if (savePending) { savePending = false; saveState(); }
+      syncing = false;
+      updateSyncStatus();
+      if (syncAgain) { syncAgain = false; syncNow(); }
     });
+  }
+
+  function pullState() {
+    if (!isAuthenticated || syncing) return Promise.resolve();
+    if (dirty && baseVersion != null) { syncNow(); return Promise.resolve(); }
+    return apiFetch('/api/state', { cache: 'no-store' }).then(function (r) {
+      if (r.status === 401) { handleUnauthorized(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var v = versionOf(r);
+      return r.json().then(function (remote) {
+        setOnline(true);
+        if (state && v != null && v === baseVersion && !dirty) return;
+        var first = !state;
+        receiveRemote(remote, v);
+        if (first) render(); else safeRender();
+        if (dirty) syncNow();
+      });
+    }).catch(function () {
+      setOnline(false);
+      scheduleRetry();
+    }).finally(updateSyncStatus);
   }
 
   var POLL_MS = 20000;
   var pollTimer = null;
-  function pollState() {
-    if (!isAuthenticated || document.hidden || saveInFlight) return;
-    apiFetch('/api/state').then(function (r) {
-      if (r.status === 401) { isAuthenticated = false; render(); return null; }
-      if (!r.ok) return null;
-      return r.json();
-    }).then(function (remote) {
-      if (!remote) return;
-      var remoteJson = JSON.stringify(remote);
-      if (remoteJson !== JSON.stringify(state)) {
-        state = remote;
-        migrateState(state);
-        render();
-      }
-    }).catch(function () {});
-  }
   function startPolling() {
     if (pollTimer) return;
-    pollTimer = setInterval(pollState, POLL_MS);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) pollState(); });
-    window.addEventListener('focus', pollState);
+    pollTimer = setInterval(function () { if (!document.hidden) pullState(); }, POLL_MS);
   }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && isAuthenticated) pullState(); });
+  window.addEventListener('focus', function () { if (isAuthenticated) pullState(); });
+  window.addEventListener('online', function () { if (isAuthenticated) { if (dirty) syncNow(); else pullState(); } });
+  window.addEventListener('offline', function () { setOnline(false); });
 
   function boot() {
-    apiFetch('/api/session').then(function (r) { return r.json(); }).then(function (sess) {
+    var saved = readLocal();
+    if (saved && saved.state) {
+      state = migrateState(saved.state);
+      baseState = saved.base || null;
+      baseVersion = saved.version == null ? null : saved.version;
+      dirty = !!saved.dirty;
+      currentUsername = saved.user || '';
+    }
+    apiFetch('/api/session', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (sess) {
+      setOnline(true);
       isAuthenticated = !!sess.authenticated;
-      currentUsername = sess.username || '';
-      if (!isAuthenticated) { booted = true; render(); return; }
-      return loadStateAndRender();
-    }).catch(function () {
-      isAuthenticated = false;
+      if (sess.username) currentUsername = sess.username;
       booted = true;
+      if (!isAuthenticated) { render(); return; }
+      if (state) { render(); handleLaunchAction(); }
+      startPolling();
+      return pullState().then(handleLaunchAction);
+    }).catch(function () {
+      // Pas de réseau : on ouvre la copie gardée sur l'appareil.
+      online = false;
+      booted = true;
+      isAuthenticated = !!state;
       render();
+      updateSyncStatus();
+      if (state) { handleLaunchAction(); startPolling(); }
+      scheduleRetry();
     });
   }
 
+  // Après connexion : récupère l'état (en fusionnant d'éventuelles modifications locales).
   function loadStateAndRender() {
-    return apiFetch('/api/state').then(function (r) {
-      if (r.status === 401) { isAuthenticated = false; booted = true; render(); return; }
-      return r.json().then(function (remote) {
-        state = remote || defaultState();
-        migrateState(state);
-        booted = true;
-        render();
-        startPolling();
-      });
-    }).catch(function () {
-      state = defaultState();
-      booted = true;
-      render();
-    });
+    booted = true;
+    render();
+    startPolling();
+    return pullState().then(handleLaunchAction);
+  }
+
+  // Raccourci de l'icône installée (appui long → « Nouveau mouvement ») : ?action=nouveau-mouvement
+  function handleLaunchAction() {
+    var params = new URLSearchParams(location.search);
+    if (params.get('action') !== 'nouveau-mouvement' || !state || !isAuthenticated) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    currentPage = 'dashboard';
+    selectedMonthKey = budgetMonthKeyForDate(todayISO());
+    editingMovementId = null;
+    render();
+    var dlg = document.getElementById('movement-modal');
+    if (dlg && !dlg.open) dlg.showModal();
   }
 
   // --- rendering ---
@@ -762,6 +930,11 @@
       document.getElementById('app').innerHTML = renderLoginScreen();
       return;
     }
+    if (!state) {
+      document.getElementById('app').innerHTML = '<div class="loading-shell">Pas de connexion au serveur.<br>Le budget s’affichera dès que le réseau revient.</div>';
+      return;
+    }
+    renderDeferred = false;
     var view = computeMonthView(state, selectedMonthKey, {});
     document.getElementById('app').innerHTML = renderApp(state, view, selectedMonthKey, currentPage, editingMovementId, selectedYear, movementGroupBy);
   }
@@ -857,11 +1030,13 @@
         renderDashboard(view, monthKey, editingMovementId, groupBy)) +
       '</div>' +
       renderConfirmDialog() +
+      renderInstallDialog() +
       '<div class="toast" id="toast" hidden></div>';
   }
 
   function renderDashboard(view, monthKey, editingMovementId, groupBy) {
     return '<div class="page-stack">' +
+      renderInstallBanner() +
       '<div class="stats-row">' +
         view.envelopes.map(function (env) { return budgetStat(env); }).join('') +
       '</div>' +
@@ -1312,6 +1487,7 @@
       renderTagsCard(st) +
       renderPaymentMethodsCard(st) +
       renderGeneralSettingsCard(st) +
+      renderInstallCard() +
       renderAccountCard() +
       '</div>' +
       renderIconModal(st, view);
@@ -1534,6 +1710,70 @@
       '</div></details></section>';
   }
 
+  // --- Installation de l'app (PWA) ---
+  // Invite du navigateur quand il en propose une (Chrome Android / PC), sinon marche à
+  // suivre (iPhone : Safari > Partager). Rien n'est affiché si l'app tourne installée.
+  var installPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installPrompt = e; if (booted) safeRender(); });
+  window.addEventListener('appinstalled', function () { installPrompt = null; showToast('App installée sur l’écran d’accueil.'); if (booted) safeRender(); });
+  function isInstalled() {
+    return ['standalone', 'fullscreen', 'minimal-ui'].some(function (m) { return window.matchMedia('(display-mode: ' + m + ')').matches; }) || navigator.standalone === true;
+  }
+  function isIos() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function isAndroid() { return /android/i.test(navigator.userAgent); }
+  function installHidden() { try { return localStorage.getItem('fee-lezcomptes-install-hidden') === '1'; } catch (e) { return false; } }
+  function setInstallHidden() { try { localStorage.setItem('fee-lezcomptes-install-hidden', '1'); } catch (e) {} }
+
+  function renderInstallBanner() {
+    if (isInstalled() || installHidden()) return '';
+    return '<div class="install-banner card">' +
+      '<img src="' + BASE + '/icon-192.png" alt="" width="36" height="36">' +
+      '<button type="button" class="install-banner-main" data-action="install"><b>Installer l’app</b><span>Icône sur l’écran d’accueil, ajout rapide d’un mouvement, marche sans réseau</span></button>' +
+      '<button type="button" class="icon-btn" data-action="install-hide" aria-label="Masquer">✕</button>' +
+      '</div>';
+  }
+  function renderInstallCard() {
+    var isOpen = openAccordions.has('settings-install');
+    return '<section class="card"><details data-key="settings-install"' + (isOpen ? ' open' : '') + '><summary class="card-title">Application</summary>' +
+      '<div class="settings-body">' +
+      (isInstalled()
+        ? '<p class="empty-note">✓ L’app est installée sur cet appareil. Appui long sur son icône → « Nouveau mouvement ».</p>'
+        : '<p class="empty-note">Installe Fée Lezcomptes sur l’écran d’accueil : elle s’ouvre comme une app, marche sans réseau, et un appui long sur l’icône permet d’ajouter directement un mouvement.</p>' +
+          '<button type="button" class="btn-add" data-action="install">📲 Installer l’app</button>') +
+      '</div></details></section>';
+  }
+  function installStep(n, html) { return '<li><span class="install-step-num">' + n + '</span><span>' + html + '</span></li>'; }
+  function renderInstallDialog() {
+    var safari = isIos() && !/crios|fxios|edgios/i.test(navigator.userAgent);
+    var steps = isIos()
+      ? (safari ? '' : installStep(0, 'Ouvre cette page dans <b>Safari</b> (sur iPhone, seul Safari sait installer une app web).')) +
+        installStep(1, 'Touche le bouton <b>Partager</b> (carré avec une flèche vers le haut).') +
+        installStep(2, 'Choisis <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.')
+      : isAndroid()
+        ? installStep(1, 'Ouvre le menu <b>⋮</b> de Chrome.') + installStep(2, 'Choisis <b>Installer l’application</b> ou <b>Ajouter à l’écran d’accueil</b>.')
+        : installStep(1, 'Dans Chrome ou Edge : icône d’installation <b>⊕</b> à droite de la barre d’adresse.') +
+          installStep(2, 'Sur téléphone, ouvre plutôt cette adresse dans Chrome :<br><code>' + esc(location.origin + BASE + '/') + '</code>');
+    return '<dialog class="modal" id="install-dialog"><div class="modal-form">' +
+      '<h3 class="card-title">📲 Installer l’app</h3>' +
+      '<ol class="install-steps">' + steps + '</ol>' +
+      '<div class="modal-actions"><button type="button" class="btn-secondary" data-action="install-close">Fermer</button></div>' +
+      '</div></dialog>';
+  }
+  function startInstall() {
+    if (installPrompt) {
+      var p = installPrompt;
+      installPrompt = null;
+      p.prompt();
+      p.userChoice.then(function (r) {
+        if (!r || r.outcome !== 'accepted') showToast('Installation annulée : tu pourras la relancer depuis les réglages.');
+        safeRender();
+      }).catch(function () {});
+      return;
+    }
+    var dlg = document.getElementById('install-dialog');
+    if (dlg) dlg.showModal();
+  }
+
   function renderAccountCard() {
     var isOpen = openAccordions.has('settings-account');
     return '<section class="card"><details data-key="settings-account"' + (isOpen ? ' open' : '') + '><summary class="card-title">Compte</summary>' +
@@ -1586,14 +1826,20 @@
       return;
     }
     if (action === 'logout') {
+      if (dirty) { showToast('Des modifications ne sont pas encore envoyées au serveur : attends le retour du réseau.'); return; }
       apiFetch('/api/logout', { method: 'POST' }).then(function () {
         isAuthenticated = false;
         clearInterval(pollTimer);
         pollTimer = null;
+        clearLocal();
+        state = null; baseState = null; baseVersion = null;
         render();
-      });
+      }).catch(function () { showToast('Pas de réseau : déconnexion impossible pour l’instant.'); });
       return;
     }
+    if (action === 'install') { startInstall(); return; }
+    if (action === 'install-close') { var dlgI = document.getElementById('install-dialog'); if (dlgI) dlgI.close(); return; }
+    if (action === 'install-hide') { setInstallHidden(); render(); return; }
     if (action === 'confirm-yes') {
       var confirmDlg = document.getElementById('confirm-dialog');
       if (confirmDlg) confirmDlg.close();
@@ -2093,6 +2339,10 @@
   appEl.addEventListener('pointermove', onPointerMove);
   appEl.addEventListener('pointerup', onPointerUp);
   appEl.addEventListener('pointercancel', onPointerUp);
+  // Un état reçu du serveur pendant une saisie est affiché à la fermeture de la fenêtre.
+  appEl.addEventListener('close', function () {
+    if (renderDeferred) setTimeout(function () { if (renderDeferred && !document.querySelector('#app dialog[open]')) render(); }, 0);
+  }, true);
   // 'toggle' ne bubble pas : on l'intercepte en phase de capture pour mémoriser
   // l'état ouvert/fermé des accordéons sans provoquer de re-rendu. Un seul accordéon
   // reste ouvert à la fois : en ouvrir un referme tous les autres directement dans le DOM.

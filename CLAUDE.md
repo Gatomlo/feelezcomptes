@@ -8,8 +8,8 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - Front : JS vanilla dans une IIFE, rendu par chaînes HTML + délégation d'événements (`data-action`).
 
 ## Fichiers clés
-- `src/server.js` : routes `/api/login|logout|session|account/*`, `GET/PUT /api/state`.
-- `src/db.js` : SQLite (`data/app.db`), l'état complet est un seul JSON ; `src/sessionStore.js`.
+- `src/server.js` : routes `/api/login|logout|session|account/*`, `GET/PUT /api/state` (version dans l'en-tête `X-State-Version` ; PUT avec `X-Base-Version` dépassée → 409 + état actuel).
+- `src/db.js` : SQLite (`data/app.db`), l'état complet est un seul JSON + colonne `version` ; `src/sessionStore.js`.
 - `public/app.js` : toute la logique (état, calculs, rendu, événements). `public/styles.css`, `index.html`, `sw.js`.
 - `scripts/set-password.js` : `npm run set-password -- identifiant motdepasse`.
 
@@ -19,6 +19,9 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - **Un mouvement est affiché/compté dans le mois budgétaire de sa date** (`budgetMonthKeyForDate`, `movementMonthKey`), quel que soit `months[key]` où il est stocké. `computeMonthView` parcourt donc tous les mois ; pour modifier/supprimer, retrouver le mouvement avec `findMovementMonthKey(id)`. Exception : un mouvement lié à un budget ponctuel (`ephemeralEnvelopes`) reste dans le mois de ce budget.
 - Revenus/fixes/budgets récurrents bornés par `startMonth`/`endMonth` ; surcharges par mois (`incomeAmounts`, `fixedAmounts`, `envelopeAmounts`, `envelopeWeeks`, `removed*`).
 - Un revenu rattaché à un budget le recrédite (remboursement) au lieu de compter comme revenu.
+- **Hors-ligne / synchro** (`app.js`, section « Synchronisation ») : état gardé dans localStorage (`fee-lezcomptes-data` : state, base = dernier état serveur, version, dirty). Chaque modif est écrite localement puis envoyée ; en cas de 409, `merge3(base, local, serveur)` (objets par clé, listes d'objets par `id`, listes simples comme ensembles ; conflit : l'appareil gagne). Réessai toutes les 15 s, à l'événement `online`, au retour au premier plan. Ouverture sans réseau = copie locale. Déconnexion refusée tant que `dirty`. Pas de rendu sous une modale ouverte (`safeRender`).
+- `sw.js` : interface en réseau d'abord (repli cache après 4 s), `/api` non intercepté ; changer `VERSION` si `FILES` change. Non testable dans le navigateur intégré (pas de service worker).
+- **Installation** : bandeau masquable sur l'accueil (`fee-lezcomptes-install-hidden`) + carte « Application » des réglages. Raccourci du manifest (appui long sur l'icône) → `?action=nouveau-mouvement` → `handleLaunchAction` ouvre la modale d'ajout.
 - Mouvements : glisser (tactile) ou boutons ✏️/🗑️ (souris, via `@media (hover: hover) and (pointer: fine)`).
 
 ## Commandes

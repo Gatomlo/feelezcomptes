@@ -445,3 +445,15 @@ details[data-key^="week-"] > summary::before, details[data-key^="week-"][open] >
 }
 
 .loading-shell { min-height: 70vh; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+
+/* Installation de l'app et état hors ligne */
+.install-banner { display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.9rem; }
+.install-banner img { border-radius: 8px; flex: none; }
+.install-banner-main { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; background: none; border: none; padding: 0; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.install-banner-main span { color: var(--muted); font-size: 0.8rem; }
+.install-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+.install-steps li { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.9rem; }
+.install-steps code { word-break: break-all; }
+.install-step-num { flex: none; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent-soft-ink); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600; }
+.sync-status { position: fixed; top: max(0.5rem, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 20; background: var(--ink); color: var(--paper); padding: 0.3rem 0.8rem; border-radius: 999px; font-size: 0.78rem; box-shadow: var(--shadow); white-space: nowrap; max-width: calc(100% - 2rem); overflow: hidden; text-overflow: ellipsis; }
+.sync-status[hidden] { display: none; }

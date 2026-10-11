@@ -149,7 +149,10 @@ app.post("/api/account/password", requireAuth, (req, res) => {
 
 // --- État du budget ---
 
+// La version de l'etat voyage dans l'en-tete X-State-Version (le corps reste l'etat seul).
 app.get("/api/state", requireAuth, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("X-State-Version", String(db.getStateVersion()));
   res.json(db.getState());
 });
 
@@ -158,8 +161,17 @@ app.put("/api/state", requireAuth, (req, res) => {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     return res.status(400).json({ error: "Format invalide." });
   }
-  db.saveState(state);
-  res.json({ ok: true });
+  // X-Base-Version : version sur laquelle le client a construit son etat. Si elle est
+  // depassee, 409 avec l'etat actuel : le client fusionne ses modifications et renvoie.
+  const baseHeader = req.get("X-Base-Version");
+  const base = baseHeader != null && /^\d+$/.test(baseHeader) ? Number(baseHeader) : null;
+  const version = db.saveState(state, base);
+  if (version == null) {
+    res.set("X-State-Version", String(db.getStateVersion()));
+    return res.status(409).json({ error: "conflict", state: db.getState() });
+  }
+  res.set("X-State-Version", String(version));
+  res.json({ ok: true, version });
 });
 
 // --- Fichiers statiques (front-end) ---

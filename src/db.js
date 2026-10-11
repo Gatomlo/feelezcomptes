@@ -38,6 +38,12 @@ db.exec(`
   );
 `);
 
+// Version de l'etat : incrementee a chaque sauvegarde, sert a detecter qu'un appareil
+// (hors-ligne ou non) envoie un etat construit sur une version deja depassee.
+if (!db.prepare("PRAGMA table_info(budget_state)").all().some((c) => c.name === "version")) {
+  db.exec("ALTER TABLE budget_state ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
+}
+
 const DEFAULT_STATE = {
   recurring: { incomes: [], fixedExpenses: [], envelopes: [], tags: [] },
   months: {},
@@ -92,11 +98,19 @@ function getState() {
   return row ? JSON.parse(row.data) : JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
 
-function saveState(state) {
+function getStateVersion() {
+  const row = db.prepare("SELECT version FROM budget_state WHERE id = 1").get();
+  return row ? row.version : 0;
+}
+
+// Enregistre l'etat et renvoie la nouvelle version. Avec baseVersion (nombre), refuse
+// (renvoie null) si l'etat a change entre-temps : le client doit fusionner puis renvoyer.
+function saveState(state, baseVersion) {
   const json = JSON.stringify(state);
-  db.prepare(
-    "UPDATE budget_state SET data = ?, updated_at = datetime('now') WHERE id = 1"
-  ).run(json);
+  const r = baseVersion == null
+    ? db.prepare("UPDATE budget_state SET data = ?, version = version + 1, updated_at = datetime('now') WHERE id = 1").run(json)
+    : db.prepare("UPDATE budget_state SET data = ?, version = version + 1, updated_at = datetime('now') WHERE id = 1 AND version = ?").run(json, baseVersion);
+  return r.changes ? getStateVersion() : null;
 }
 
 module.exports = {
@@ -106,6 +120,7 @@ module.exports = {
   updateUsername,
   updatePasswordHash,
   getState,
+  getStateVersion,
   saveState,
   DEFAULT_STATE,
 };
