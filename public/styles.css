@@ -119,9 +119,11 @@ button:active:not(:disabled) { transform: scale(.96); }
 .hero-badge { font-size: 12px; font-weight: 700; color: var(--dark); background: var(--peach-2); border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
 .hero-bar { display: flex; gap: 4px; height: 8px; }
 .hero-bar .seg { flex-basis: 0; border-radius: 999px; transition: flex-grow .45s var(--ease), width .45s var(--ease); }
-.seg-fixed { background: var(--peach); }
-.seg-spent { background: var(--accent); }
-.seg-left { background: var(--dark-2); }
+.seg-spent { background: var(--peach); display: block; }
+.seg-spent.over { background: #EF6B4E; }
+.hero-gauge { display: flex; flex-direction: column; gap: 8px; }
+.hero-gauge-cap { font-size: 12px; color: var(--dark-muted); font-weight: 600; }
+.hero-gauge-cap b { color: var(--accent-ink); font-weight: 800; white-space: nowrap; }
 .hero-bar.single { background: var(--dark-2); border-radius: 999px; }
 .hero-bar.single .seg { flex: none; height: 100%; }
 .seg-good { background: var(--good-bright); display: block; }

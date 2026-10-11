@@ -1197,15 +1197,15 @@
     var cur = currentWeekIndex(view);
     var netSpent = view.totalOutflow - view.recurringFixedTotal;
     var reste = view.totalIncome - view.recurringFixedDue - netSpent;
-    var total = Math.max(view.totalIncome, view.recurringFixedDue + Math.max(0, netSpent), 1);
+    var available = view.totalIncome - view.recurringFixedDue;
+    var spentPct = pct(Math.max(0, netSpent), available);
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
-      '<div class="hero-bar" aria-hidden="true">' +
-        '<span class="seg seg-fixed" style="flex-grow:' + (view.recurringFixedDue / total * 100).toFixed(2) + '"></span>' +
-        '<span class="seg seg-spent" style="flex-grow:' + (Math.max(0, netSpent) / total * 100).toFixed(2) + '"></span>' +
-        '<span class="seg seg-left" style="flex-grow:' + (Math.max(0, reste) / total * 100).toFixed(2) + '"></span>' +
+      '<div class="hero-gauge">' +
+        '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span></div>' +
+        '<span class="hero-gauge-cap"><b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes</span>' +
       '</div>' +
       '<div class="hero-stats">' +
         '<div><span>Revenus</span><b>' + fmt(view.totalIncome) + '</b></div>' +
