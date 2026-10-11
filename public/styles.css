@@ -122,8 +122,8 @@ button:active:not(:disabled) { transform: scale(.96); }
 .seg-spent { background: var(--peach); display: block; }
 .seg-spent.over { background: #EF6B4E; }
 .hero-gauge { display: flex; flex-direction: column; gap: 8px; }
-.hero-gauge-cap { font-size: 12px; color: var(--dark-muted); font-weight: 600; }
-.hero-gauge-cap b { color: var(--accent-ink); font-weight: 800; white-space: nowrap; }
+.info-text.hero-gauge-cap { margin: 0; font-size: 12px; color: var(--dark-muted); font-weight: 600; }
+.info-text.hero-gauge-cap b { color: var(--accent-ink); font-weight: 800; white-space: nowrap; }
 .hero-bar.single { background: var(--dark-2); border-radius: 999px; }
 .hero-bar.single .seg { flex: none; height: 100%; }
 .seg-good { background: var(--good-bright); display: block; }
@@ -149,13 +149,16 @@ button:active:not(:disabled) { transform: scale(.96); }
 .tile-ratio { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px; }
 .tile-ratio b { font-family: var(--display); font-size: 19px; font-weight: 800; letter-spacing: -.3px; }
 .tile-ratio span { font-size: 12.5px; font-weight: 700; color: var(--muted); }
-.bar.plan { position: relative; height: 8px; }
-.bar-report { position: absolute; top: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--critical) 0 3px, var(--critical-soft) 3px 6px); opacity: .85; }
+.budget-tile .bar { height: 8px; }
 .tile-foot { font-size: 11.5px; font-weight: 700; color: var(--muted); }
-.budget-tile.over .tile-ratio b, .budget-tile.over .tile-foot { color: var(--critical); }
+.tile-foot b { color: var(--ink); font-weight: 800; }
+.tile-foot b.cut { color: var(--critical); }
+.info-btn { border: 0; background: none; color: inherit; opacity: .55; padding: 2px; margin-left: 4px; vertical-align: -3px; display: inline-flex; cursor: pointer; border-radius: 999px; }
+.info-btn.sel { opacity: 1; }
+.info-text { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); line-height: 1.45; }
+.info-text b { color: var(--ink); }
+.budget-tile.over .tile-ratio b, .budget-tile.over .tile-ratio span { color: var(--critical); }
 .budget-tile.over .bar > span { background: var(--critical); }
-.legend-line { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
-.legend-hatch { width: 18px; height: 8px; border-radius: 4px; flex: none; background: repeating-linear-gradient(45deg, var(--critical) 0 3px, var(--critical-soft) 3px 6px); }
 .fact.report b, .fact.report span { color: var(--critical); }
 
 /* --- Lignes de mouvement : toucher pour dévoiler les actions --- */

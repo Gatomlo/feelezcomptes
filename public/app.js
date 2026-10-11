@@ -95,6 +95,7 @@
   var selectedWeekIdx = null;    // semaine choisie sur l'accueil (null = semaine en cours)
   var budgetDetailId = uiRestore.budgetId || null;
   var showAllBudgets = false;
+  var infoOpen = {}; // explications dévoilées par les boutons ⓘ (clé → booléen)
   var revealedMovementId = null; // ligne dont les actions Modifier / Supprimer sont visibles
   var openSheet = null;          // id de la feuille (dialog) à rouvrir après un re-rendu
   var statsMonthKey = null;
@@ -973,7 +974,8 @@
     tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
     card: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>',
     up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
-    dot: '<circle cx="12" cy="12" r="4"/>'
+    dot: '<circle cx="12" cy="12" r="4"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
   };
   function svg(name, size, cls) {
     var s = size || 20;
@@ -1191,6 +1193,14 @@
     return '<div class="mv-list">' + moves.map(function (m) { return moveRowHtml(m, ctx); }).join('') + '</div>';
   }
 
+  // Bouton ⓘ qui dévoile / masque une explication (rendue par infoText).
+  function infoBtn(key, label) {
+    return '<button type="button" class="info-btn' + (infoOpen[key] ? ' sel' : '') + '" data-action="toggle-info" data-key="' + key + '" aria-expanded="' + !!infoOpen[key] + '" aria-label="' + label + '">' + svg('info', 16) + '</button>';
+  }
+  function infoText(key, html, cls) {
+    return infoOpen[key] ? '<p class="info-text' + (cls ? ' ' + cls : '') + '">' + html + '</p>' : '';
+  }
+
   // --- Accueil ---
   function renderHomePage(view) {
     var w = activeWeek(view);
@@ -1200,12 +1210,12 @@
     var available = view.totalIncome - view.recurringFixedDue;
     var spentPct = pct(Math.max(0, netSpent), available);
     var hero = '<section class="hero">' +
-      '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser</span>' +
+      '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +
         '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span></div>' +
-        '<span class="hero-gauge-cap"><b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes</span>' +
+        infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).', 'hero-gauge-cap') +
       '</div>' +
       '<div class="hero-stats">' +
         '<div><span>Revenus</span><b>' + fmt(view.totalIncome) + '</b></div>' +
@@ -1227,23 +1237,20 @@
     }).sort(function (a, b) { return b.ratio - a.ratio; });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
-      // Option B : « dépensé / prévu ». La jauge représente tout le prévu de la semaine ;
-      // la partie hachurée est retirée par le dépassement reporté de la semaine précédente.
+      // Dispo = prévu de la semaine − dépassement reporté de la semaine précédente ;
+      // grand chiffre = reste réel (dispo − dépensé) ; jauge = dépensé / dispo.
       var rem = r.alloc - r.spent, over = rem < 0;
-      var foot = over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem) + (r.report ? ' après report' : '');
-      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + fmtShort(r.spent) + ' dépensés sur ' + fmtShort(r.plan) + ' prévus, ' + foot + '">' +
+      var gauge = r.alloc > 0 ? pct(r.spent, r.alloc) : (r.spent > 0 || r.report ? 100 : 0);
+      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + (over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem)) + ', disponible ' + fmtShort(r.alloc) + ' sur ' + fmtShort(r.plan) + ' prévus, ' + fmtShort(r.spent) + ' dépensés">' +
         '<span class="budget-tile-head"><span class="ibox sm" style="--c:' + tagColor(r.env.id) + '"><span class="emo">' + r.env.icon + '</span></span>' +
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
-        '<span class="tile-ratio"><b>' + fmtShort(r.spent) + '</b><span>/ ' + fmtShort(r.plan) + '</span></span>' +
-        '<span class="bar plan"><span style="width:' + pct(r.spent, r.plan) + '%"></span>' +
-          (r.report ? '<i class="bar-report" style="width:' + pct(r.report, r.plan) + '%"></i>' : '') + '</span>' +
-        '<span class="tile-foot">' + foot + '</span>' +
+        '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b><span>' + (over ? 'dépassé' : 'reste') + '</span></span>' +
+        '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span></span>' +
+        '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>' +
         '</button>';
     }).join('');
-    var anyReport = ranked.some(function (r) { return r.report > 0; });
     var budgetsBlock = view.envelopes.length
       ? '<div class="budget-grid">' + tiles + '</div>' +
-        (anyReport ? '<p class="legend-line"><span class="legend-hatch"></span>report d’un dépassement de la semaine précédente</p>' : '') +
         (view.envelopes.length > 6 ? '<button type="button" class="btn-ghost" data-action="toggle-all-budgets">' + (showAllBudgets ? 'Réduire' : 'Afficher les ' + view.envelopes.length + ' budgets') + svg('chevD', 16, showAllBudgets ? 'flip' : '') + '</button>' : '')
       : '<p class="empty-card">Aucun budget ce mois-ci. <button type="button" class="link" data-action="goto-settings" data-section="settings-budgets">Créer un budget</button></p>';
 
@@ -1251,7 +1258,9 @@
     var weekMoves = view.movements.filter(function (m) { return m.weekIndex === w; });
     return renderInstallBanner() + hero +
       '<div class="week-chips">' + weekChips + '</div>' +
-      '<section class="block"><div class="block-head"><h2>Budgets</h2><span class="muted-sm">dépensé / prévu · ' + weekRangeLabel(selectedMonthKey, w).replace('-', ' → ') + '</span></div>' + budgetsBlock + '</section>' +
+      '<section class="block"><div class="block-head"><h2>Budgets' + infoBtn('budgets', 'Explication des cartes budget') + '</h2><span class="muted-sm">' + weekRangeLabel(selectedMonthKey, w).replace('-', ' → ') + '</span></div>' +
+        infoText('budgets', '<b>Grand chiffre</b> : ce qu’il reste réellement à dépenser cette semaine (dispo − dépensé).<br><b>Dispo / prévu</b> : le prévu de la semaine, diminué du dépassement de la semaine précédente (en rouge quand il y a un report).<br><b>Jauge</b> : dépensé par rapport au dispo.') +
+        budgetsBlock + '</section>' +
       '<section class="block"><div class="block-head"><h2>' + (w === cur ? 'Cette semaine' : 'Semaine ' + (w + 1)) + '</h2>' +
         '<button type="button" class="link" data-action="nav-movements">Tout voir</button></div>' +
         moveListHtml(weekMoves, ctx, 'Aucun mouvement cette semaine.') + '</section>';
@@ -2087,6 +2096,7 @@
       return;
     }
     if (action === 'pick-week') { selectedWeekIdx = parseInt(btn.dataset.idx, 10); revealedMovementId = null; render(); return; }
+    if (action === 'toggle-info') { infoOpen[btn.dataset.key] = !infoOpen[btn.dataset.key]; render(); return; }
     if (action === 'toggle-all-budgets') { showAllBudgets = !showAllBudgets; render(); return; }
     if (action === 'next-budget') {
       var envIds = computeMonthView(state, selectedMonthKey, {}).envelopes.map(function (en) { return en.id; });
