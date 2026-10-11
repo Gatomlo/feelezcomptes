@@ -28,7 +28,7 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - Local : `npm install`, `cp .env.example .env`, `npm start` → http://localhost:3000 (`COOKIE_SECURE=false`).
 - Test isolé : lancer avec `PORT`, `DATA_DIR`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` dédiés (base vide) et injecter un état via `PUT /api/state`.
 - Pas de tests automatisés ; vérifier au minimum `node --check public/app.js`.
-- Déploiement : VPS + pm2 + nginx, voir `README.md`.
+- Déploiement : VPS + pm2 + nginx, voir `README.md`. Le serveur (`/home/debian/fee-lezcomptes`) est un clone git : mise à jour = `git pull && npm install --omit=dev && pm2 restart fee-lezcomptes`.
 - Git : https://github.com/Gatomlo/feelezcomptes (public — ne jamais versionner `.env`, `test.env`, ni de base `*.db`).
 
 ## Méthode de travail
