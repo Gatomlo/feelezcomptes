@@ -157,7 +157,7 @@ button:active:not(:disabled) { transform: scale(.96); }
 .info-btn.sel { opacity: 1; }
 .info-text { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); line-height: 1.45; }
 .info-text b { color: var(--ink); }
-.budget-tile.over .tile-ratio b, .budget-tile.over .tile-ratio span { color: var(--critical); }
+.budget-tile.over .tile-ratio b { color: var(--critical); }
 .budget-tile.over .bar > span { background: var(--critical); }
 .fact.report b, .fact.report span { color: var(--critical); }
 

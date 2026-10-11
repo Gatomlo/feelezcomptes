@@ -1244,7 +1244,7 @@
       return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + (over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem)) + ', disponible ' + fmtShort(r.alloc) + ' sur ' + fmtShort(r.plan) + ' prévus, ' + fmtShort(r.spent) + ' dépensés">' +
         '<span class="budget-tile-head"><span class="ibox sm" style="--c:' + tagColor(r.env.id) + '"><span class="emo">' + r.env.icon + '</span></span>' +
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
-        '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b><span>' + (over ? 'dépassé' : 'reste') + '</span></span>' +
+        '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b></span>' +
         '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span></span>' +
         '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>' +
         '</button>';
