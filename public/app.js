@@ -95,6 +95,7 @@
   var selectedWeekIdx = null;    // semaine choisie sur l'accueil (null = semaine en cours)
   var budgetDetailId = uiRestore.budgetId || null;
   var showAllBudgets = false;
+  var budgetMode = 'week';       // cartes budget de l'accueil : 'week' (reste de la semaine) ou 'month' (reste du mois)
   var infoOpen = {}; // explications dévoilées par les boutons ⓘ (clé → booléen)
   var revealedMovementId = null; // ligne dont les actions Modifier / Supprimer sont visibles
   var openSheet = null;          // id de la feuille (dialog) à rouvrir après un re-rendu
@@ -1228,12 +1229,13 @@
       var alloc = view.envelopes.reduce(function (s, e) { return s + e.effectiveWeeks[i]; }, 0);
       var spent = view.envelopes.reduce(function (s, e) { return s + e.spentByWeek[i]; }, 0);
       weekChips += '<button type="button" class="week-chip' + (i === w ? ' sel' : '') + (i === cur ? ' now' : '') + '" data-action="pick-week" data-idx="' + i + '" aria-pressed="' + (i === w) + '" aria-label="Semaine ' + (i + 1) + ', ' + weekRangeLabel(selectedMonthKey, i) + '">' +
-        '<span>S' + (i + 1) + '</span><span class="week-chip-bar"><span style="width:' + pct(spent, alloc) + '%"></span></span></button>';
+        '<span>S' + (i + 1) + '</span><span class="week-chip-date">' + weekRangeLabel(selectedMonthKey, i).split('-')[0] + '</span><span class="week-chip-bar"><span style="width:' + pct(spent, alloc) + '%"></span></span></button>';
     }
 
+    var monthMode = budgetMode === 'month';
     var ranked = view.envelopes.map(function (env) {
-      var a = env.effectiveWeeks[w], s = env.spentByWeek[w], p = env.weeks[w];
-      return { env: env, alloc: a, spent: s, plan: p, report: Math.max(0, p - a), ratio: a > 0 ? s / a : (s > 0 ? 99 : 0) };
+      var a = monthMode ? env.amount : env.effectiveWeeks[w], s = monthMode ? env.spentTotal : env.spentByWeek[w], p = monthMode ? env.amount : env.weeks[w];
+      return { env: env, alloc: a, spent: s, plan: p, report: monthMode ? 0 : Math.max(0, p - a), ratio: a > 0 ? s / a : (s > 0 ? 99 : 0) };
     }).sort(function (a, b) { return b.ratio - a.ratio; });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
@@ -1246,7 +1248,8 @@
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
         '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b></span>' +
         '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span></span>' +
-        '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>' +
+        (monthMode ? '<span class="tile-foot">sur <b>' + fmtShort(r.plan) + '</b> prévus</span>'
+          : '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>') +
         '</button>';
     }).join('');
     var budgetsBlock = view.envelopes.length
@@ -1258,8 +1261,10 @@
     var weekMoves = view.movements.filter(function (m) { return m.weekIndex === w; });
     return renderInstallBanner() + hero +
       '<div class="week-chips">' + weekChips + '</div>' +
-      '<section class="block"><div class="block-head"><h2>Budgets' + infoBtn('budgets', 'Explication des cartes budget') + '</h2><span class="muted-sm">' + weekRangeLabel(selectedMonthKey, w).replace('-', ' → ') + '</span></div>' +
-        infoText('budgets', '<b>Grand chiffre</b> : ce qu’il reste réellement à dépenser cette semaine (dispo − dépensé).<br><b>Dispo / prévu</b> : le prévu de la semaine, diminué du dépassement de la semaine précédente (en rouge quand il y a un report).<br><b>Jauge</b> : dépensé par rapport au dispo.') +
+      '<section class="block"><div class="block-head"><h2>Budgets' + infoBtn('budgets', 'Explication des cartes budget') + '</h2>' +
+        '<span class="seg" role="group" aria-label="Période des budgets"><button type="button" data-action="budget-mode" data-mode="week" aria-pressed="' + !monthMode + '">Semaine</button><button type="button" data-action="budget-mode" data-mode="month" aria-pressed="' + monthMode + '">Mois</button></span></div>' +
+      '<p class="block-sub">' + (monthMode ? 'Reste sur le mois' : weekRangeLabel(selectedMonthKey, w).replace('-', ' → ')) + '</p>' +
+        infoText('budgets', '<b>Grand chiffre</b> : ce qu’il reste réellement à dépenser cette semaine (dispo − dépensé).<br><b>Dispo / prévu</b> : le prévu de la semaine, diminué du dépassement de la semaine précédente (en rouge quand il y a un report).<br><b>Jauge</b> : dépensé par rapport au dispo.<br>En vue <b>Mois</b> : reste du budget sur tout le mois.') +
         budgetsBlock + '</section>' +
       '<section class="block"><div class="block-head"><h2>' + (w === cur ? 'Cette semaine' : 'Semaine ' + (w + 1)) + '</h2>' +
         '<button type="button" class="link" data-action="nav-movements">Tout voir</button></div>' +
@@ -2097,6 +2102,7 @@
     }
     if (action === 'pick-week') { selectedWeekIdx = parseInt(btn.dataset.idx, 10); revealedMovementId = null; render(); return; }
     if (action === 'toggle-info') { infoOpen[btn.dataset.key] = !infoOpen[btn.dataset.key]; render(); return; }
+    if (action === 'budget-mode') { budgetMode = btn.dataset.mode === 'month' ? 'month' : 'week'; render(); return; }
     if (action === 'toggle-all-budgets') { showAllBudgets = !showAllBudgets; render(); return; }
     if (action === 'next-budget') {
       var envIds = computeMonthView(state, selectedMonthKey, {}).envelopes.map(function (en) { return en.id; });

@@ -138,6 +138,7 @@ button:active:not(:disabled) { transform: scale(.96); }
 .week-chip { flex: 1; border: 0; border-radius: 16px; padding: 10px 0; background: var(--surface); color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; }
 .week-chip.now:not(.sel) { box-shadow: inset 0 0 0 2px var(--peach); }
 .week-chip.sel { background: var(--accent); color: var(--accent-ink); box-shadow: 0 10px 20px -10px var(--accent); }
+.week-chip-date { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; opacity: .85; margin-top: -3px; }
 .week-chip-bar { width: 26px; height: 4px; border-radius: 999px; background: var(--line); display: flex; overflow: hidden; }
 .week-chip-bar span { background: var(--peach); border-radius: 999px; }
 .week-chip.sel .week-chip-bar { background: rgba(255, 252, 247, .35); }
@@ -153,6 +154,10 @@ button:active:not(:disabled) { transform: scale(.96); }
 .tile-foot { font-size: 11.5px; font-weight: 700; color: var(--muted); }
 .tile-foot b { color: var(--ink); font-weight: 800; }
 .tile-foot b.cut { color: var(--critical); }
+.block-sub { margin: -6px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); }
+.seg { display: inline-flex; background: var(--line); border-radius: 999px; padding: 2px; }
+.seg button { border: 0; background: none; font: inherit; font-size: 11.5px; font-weight: 800; color: var(--muted); padding: 4px 11px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 .info-btn { border: 0; background: none; color: inherit; opacity: .55; padding: 2px; margin-left: 4px; vertical-align: -3px; display: inline-flex; cursor: pointer; border-radius: 999px; }
 .info-btn.sel { opacity: 1; }
 .info-text { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); line-height: 1.45; }
