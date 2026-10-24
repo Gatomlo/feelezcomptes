@@ -1213,7 +1213,7 @@
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span>' +
-        '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel <b>' + fmt(view.endingBalance) + '</b> · fixes payés seulement</span></div>' +
+        '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel (fixes payés) <b>' + fmt(view.endingBalance) + '</b></span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +
         '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span></div>' +
