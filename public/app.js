@@ -1212,11 +1212,12 @@
     var spentPct = pct(Math.max(0, netSpent), available);
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
-        '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span></div>' +
+        '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span>' +
+        '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel <b>' + fmt(view.endingBalance) + '</b> · fixes payés seulement</span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +
         '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span></div>' +
-        infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).', 'hero-gauge-cap') +
+        infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).<br><b>Grand chiffre</b> : revenus − tous les frais fixes du mois (payés ou non) − dépensé.<br><b>Solde actuel</b> : revenus − frais fixes cochés payés − dépensé, soit ce qu’il y a réellement en caisse.', 'hero-gauge-cap') +
       '</div>' +
       '<div class="hero-stats">' +
         '<div><span>Revenus</span><b>' + fmt(view.totalIncome) + '</b></div>' +
