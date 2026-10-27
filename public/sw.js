@@ -4,8 +4,9 @@
 // - Polices Google : cache d'abord.
 // - /api/… : jamais touché ici ; l'app garde elle-même ses données (localStorage) et
 //   les synchronise au retour du réseau.
+// - Notifications push : « Avez-vous dépensé … ? » pour les dépenses planifiées (Oui / Reporter / Annuler).
 // Changer VERSION quand la liste FILES change.
-var VERSION = 'fl-v4';
+var VERSION = 'fl-v5';
 var FILES = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.json', 'logo.svg', 'logo.png', 'icon-192.png', 'icon-384.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 var TIMEOUT_MS = 4000;
 
@@ -60,4 +61,46 @@ self.addEventListener('fetch', function (e) {
       });
     }));
   }
+});
+
+// --- Notifications push des dépenses planifiées ---
+self.addEventListener('push', function (e) {
+  var data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (err) {}
+  var actions = data.id ? [{ action: 'yes', title: 'Oui' }, { action: 'later', title: 'Reporter' }, { action: 'no', title: 'Annuler' }] : [];
+  e.waitUntil(self.registration.showNotification(data.title || 'Fée Lezcomptes', {
+    body: data.body || '',
+    tag: data.id ? 'planned-' + data.id : 'fl-info',
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    data: { id: data.id || '' },
+    actions: actions
+  }));
+});
+
+function openApp(query) {
+  var target = new URL(self.registration.scope);
+  target.search = query || '';
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if ('focus' in list[i]) { list[i].navigate(target.href); return list[i].focus(); }
+    }
+    return self.clients.openWindow(target.href);
+  });
+}
+
+self.addEventListener('notificationclick', function (e) {
+  var n = e.notification, id = n.data && n.data.id;
+  n.close();
+  var base = self.registration.scope;
+  // Oui / Annuler : appliqués directement sur le serveur ; en cas d'échec (hors ligne,
+  // session expirée), on ouvre l'appli sur la question pour répondre à la main.
+  if (id && (e.action === 'yes' || e.action === 'no')) {
+    e.waitUntil(fetch(base + 'api/planned/' + encodeURIComponent(id) + '/' + (e.action === 'yes' ? 'confirm' : 'cancel'), { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) return openApp('?action=planifies&id=' + encodeURIComponent(id)); })
+      .catch(function () { return openApp('?action=planifies&id=' + encodeURIComponent(id)); }));
+    return;
+  }
+  if (id && e.action === 'later') { e.waitUntil(openApp('?action=planifies&id=' + encodeURIComponent(id) + '&rep=1')); return; }
+  e.waitUntil(openApp(id ? '?action=planifies&id=' + encodeURIComponent(id) : ''));
 });

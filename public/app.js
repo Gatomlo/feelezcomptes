@@ -352,12 +352,18 @@
         if (movementMonthKey(st, m, k) === key) monthMovements.push(m);
       });
     });
-    var movements = monthMovements.sort(function (a, b) {
+    var allMovements = monthMovements.sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? 1 : -1;
       return 0;
     }).map(function (m) {
       return Object.assign({}, m, { weekIndex: weekIndexForDate(m.date, key, weeksCount) });
     });
+    // Un mouvement planifié réserve son montant dans le budget de sa semaine sans être
+    // une dépense : il reste hors de `movements` (totaux, statistiques) tant qu'il n'est
+    // pas confirmé, mais figure dans `allMovements` (listes d'affichage).
+    var movements = allMovements.filter(function (m) { return !m.planned; });
+    var plannedMovements = allMovements.filter(function (m) { return m.planned; });
+    var plannedTotal = plannedMovements.reduce(function (s, m) { return s + m.amount; }, 0);
 
     var incomeLines = st.recurring.incomes.filter(function (i) {
       return isActiveInMonth(i, key) && (monthData.removedIncomes || []).indexOf(i.id) === -1;
@@ -399,6 +405,11 @@
         return envMovements.filter(function (m) { return m.weekIndex === idx; })
           .reduce(function (s, m) { return s + (m.type === 'income' ? -m.amount : m.amount); }, 0);
       });
+      // Le planifié compte comme dépensé pour le report d'un dépassement (carryDeficit).
+      var committedByWeek = spentByWeek.map(function (s, idx) {
+        return s + plannedMovements.filter(function (m) { return m.envelopeId === env.id && m.weekIndex === idx; })
+          .reduce(function (t, m) { return t + m.amount; }, 0);
+      });
       // Un dépassement sur une semaine grève le budget de la semaine suivante (report du
       // seul déficit, jamais du surplus) : effectiveWeeks est le budget réellement
       // disponible chaque semaine une fois ce report appliqué (weeks reste la valeur
@@ -407,11 +418,16 @@
       var carryDeficit = 0;
       for (var wIdx = 0; wIdx < effectiveWeeks.length; wIdx++) {
         effectiveWeeks[wIdx] = effectiveWeeks[wIdx] - carryDeficit;
-        var weekOverage = spentByWeek[wIdx] - effectiveWeeks[wIdx];
+        var weekOverage = committedByWeek[wIdx] - effectiveWeeks[wIdx];
         carryDeficit = weekOverage > 0 ? weekOverage : 0;
       }
       var spentTotal = spentByWeek.reduce(function (a, b) { return a + b; }, 0);
-      return { id: env.id, name: env.name, icon: env.icon || DEFAULT_ICON, amount: amount, weeksCount: weeksCount, weeks: weeks, effectiveWeeks: effectiveWeeks, movements: envMovements, spentByWeek: spentByWeek, spentTotal: spentTotal, remaining: amount - spentTotal, ephemeral: !!isEphemeral };
+      var plannedByWeek = weeks.map(function (_, idx) {
+        return plannedMovements.filter(function (m) { return m.envelopeId === env.id && m.weekIndex === idx; })
+          .reduce(function (s, m) { return s + m.amount; }, 0);
+      });
+      var plannedEnvTotal = plannedByWeek.reduce(function (a, b) { return a + b; }, 0);
+      return { id: env.id, name: env.name, icon: env.icon || DEFAULT_ICON, amount: amount, weeksCount: weeksCount, weeks: weeks, effectiveWeeks: effectiveWeeks, movements: allMovements.filter(function (m) { return m.envelopeId === env.id; }), spentByWeek: spentByWeek, plannedByWeek: plannedByWeek, plannedTotal: plannedEnvTotal, spentTotal: spentTotal, remaining: amount - spentTotal - plannedEnvTotal, ephemeral: !!isEphemeral };
     }
     var envelopes = st.recurring.envelopes.filter(function (env) {
       return isActiveInMonth(env, key) && (monthData.removedEnvelopes || []).indexOf(env.id) === -1;
@@ -426,7 +442,8 @@
       key: key, carry: carry, incomeLines: incomeLines, recurringIncomeTotal: recurringIncomeTotal, movementIncomeTotal: movementIncomeTotal, totalIncome: totalIncome, available: available,
       recurringFixedTotal: recurringFixedTotal, recurringFixedDue: recurringFixedDue, fixedLines: fixedLines, movementExpenseTotal: movementExpenseTotal, totalOutflow: totalOutflow,
       weeksCount: weeksCount, envelopes: envelopes, totalEnvelopeBudget: totalEnvelopeBudget, totalEnvelopeSpent: totalEnvelopeSpent,
-      plannedRemaining: plannedRemaining, endingBalance: endingBalance, movements: movements
+      plannedRemaining: plannedRemaining, endingBalance: endingBalance, movements: movements,
+      allMovements: allMovements, plannedMovements: plannedMovements, plannedTotal: plannedTotal
     };
     cache[key] = view;
     return view;
@@ -595,11 +612,41 @@
     }
   }
 
-  function addMovement(key, date, type, label, amount, envelopeId, tagId, paymentMethodId) {
+  function addMovement(key, date, type, label, amount, envelopeId, tagId, paymentMethodId, planned) {
     var m = ensureMonth(key);
-    m.movements.push({ id: uid('mv'), date: date || todayISO(), type: type === 'income' ? 'income' : 'expense', label: label, amount: amount, envelopeId: envelopeId || null, tagId: tagId || null, paymentMethodId: paymentMethodId || null });
+    var mv = { id: uid('mv'), date: date || todayISO(), type: type === 'income' ? 'income' : 'expense', label: label, amount: amount, envelopeId: envelopeId || null, tagId: tagId || null, paymentMethodId: paymentMethodId || null };
+    if (planned && mv.type === 'expense') mv.planned = true;
+    m.movements.push(mv);
   }
-  function updateMovement(key, id, date, type, label, amount, envelopeId, tagId, paymentMethodId) {
+  function findMovement(id) {
+    var key = findMovementMonthKey(id);
+    return key ? state.months[key].movements.find(function (x) { return x.id === id; }) : null;
+  }
+  // Planifiés arrivés à leur date (ou en retard), toutes périodes confondues.
+  function duePlanned() {
+    var today = todayISO(), out = [];
+    Object.keys(state.months).forEach(function (k) {
+      (state.months[k].movements || []).forEach(function (mv) { if (mv.planned && isISODate(mv.date) && mv.date <= today) out.push(mv); });
+    });
+    return out.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  }
+  // Confirmer : la dépense devient définitive. Confirmée avant sa date, elle prend celle
+  // du jour (c'est là qu'elle a vraiment eu lieu) ; sinon elle garde sa date prévue.
+  function confirmPlanned(id) {
+    var mv = findMovement(id);
+    if (!mv) return;
+    delete mv.planned;
+    if (mv.date > todayISO()) mv.date = todayISO();
+  }
+  function postponePlanned(id, date) {
+    var mv = findMovement(id);
+    if (mv && isISODate(date)) mv.date = date;
+  }
+  function addDaysISO(iso, n) {
+    var p = iso.split('-').map(Number);
+    return isoOf(new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)));
+  }
+  function updateMovement(key, id, date, type, label, amount, envelopeId, tagId, paymentMethodId, planned) {
     // Le mouvement peut être stocké dans un autre mois que celui affiché (voir movementMonthKey).
     var storedKey = findMovementMonthKey(id);
     var m = state.months[storedKey];
@@ -618,6 +665,7 @@
     mv.envelopeId = envelopeId || null;
     mv.tagId = tagId || null;
     mv.paymentMethodId = paymentMethodId || null;
+    if (planned && mv.type === 'expense') mv.planned = true; else delete mv.planned;
   }
   function removeMovement(key, id) {
     var m = state.months[findMovementMonthKey(id) || key];
@@ -642,6 +690,7 @@
     revealedMovementId = null;
     currentPage = page;
     render();
+    if (page === 'settings') refreshPushCard();
     window.scrollTo(0, 0);
   }
 
@@ -892,7 +941,7 @@
     if (pollTimer) return;
     pollTimer = setInterval(function () { if (!document.hidden) pullState(); }, POLL_MS);
   }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden && isAuthenticated) pullState(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && isAuthenticated) Promise.resolve(pullState()).then(promptDue); });
   window.addEventListener('focus', function () { if (isAuthenticated) pullState(); });
   window.addEventListener('online', function () { if (isAuthenticated) { if (dirty) syncNow(); else pullState(); } });
   window.addEventListener('offline', function () { setOnline(false); });
@@ -940,8 +989,20 @@
 
   // Raccourci de l'icône installée (appui long → « Nouveau mouvement ») : ?action=nouveau-mouvement
   function handleLaunchAction() {
+    if (!state || !isAuthenticated) return;
     var params = new URLSearchParams(location.search);
-    if (params.get('action') !== 'nouveau-mouvement' || !state || !isAuthenticated) return;
+    // Clic sur une notification push : ?action=planifies[&id=…&rep=1]
+    if (params.get('action') === 'planifies') {
+      var pid = params.get('id'), prep = params.get('rep') === '1';
+      history.replaceState(null, '', location.pathname + location.hash);
+      currentPage = 'dashboard';
+      dueDismissedDay = null;
+      var target = pid && findMovement(pid);
+      if (target && target.planned) { dueSheetId = pid; dueSheetRep = prep; dueFromRow = false; render(); openDialog('due-sheet'); }
+      else promptDue();
+      return;
+    }
+    if (params.get('action') !== 'nouveau-mouvement') { promptDue(); return; }
     history.replaceState(null, '', location.pathname + location.hash);
     currentPage = 'dashboard';
     selectedMonthKey = budgetMonthKeyForDate(todayISO());
@@ -975,6 +1036,7 @@
     tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
     card: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/>',
     up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
     dot: '<circle cx="12" cy="12" r="4"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
   };
@@ -1052,6 +1114,58 @@
       '</form></div>';
   }
 
+  // --- Dépenses planifiées arrivées à échéance (niveau 1 : dans l'appli) ---
+  // La feuille s'ouvre à l'ouverture de l'appli (« Plus tard » la fait taire pour la
+  // journée) ; la carte « À confirmer » de l'accueil reste tant qu'il y en a.
+  var dueSheetId = null, dueSheetRep = false, dueFromRow = false, dueDismissedDay = null;
+  function promptDue() {
+    if (!state || !isAuthenticated) return;
+    var list = duePlanned();
+    if (!list.length || dueDismissedDay === todayISO() || openSheet === 'due-sheet') return;
+    var mvDlg = document.getElementById('movement-modal');
+    if (mvDlg && mvDlg.open) return;
+    dueSheetId = list[0].id; dueSheetRep = false; dueFromRow = false;
+    render();
+    openDialog('due-sheet');
+  }
+  function renderDueSheet() {
+    var list = duePlanned();
+    var mv = dueSheetId ? findMovement(dueSheetId) : null;
+    if (!mv || !mv.planned) mv = dueFromRow ? null : (list[0] || null);
+    if (!mv) return '<dialog class="sheet" id="due-sheet" aria-label="À confirmer"><div class="sheet-body"></div></dialog>';
+    dueSheetId = mv.id;
+    var view = computeMonthView(state, selectedMonthKey, {});
+    var env = mv.envelopeId ? view.envelopes.find(function (e) { return e.id === mv.envelopeId; }) : null;
+    var counter = !dueFromRow && list.length > 1 ? '<span class="muted-sm">1 sur ' + list.length + '</span>' : '';
+    var tom = addDaysISO(todayISO(), 1);
+    var head = '<div class="grabber"></div><div class="sheet-head"><h2 id="due-title" class="sheet-title">' + (dueFromRow ? 'Reporter' : 'À confirmer') + '</h2>' + counter +
+      '<button type="button" class="round-btn" data-action="due-close" aria-label="Fermer">' + svg('x', 16) + '</button></div>';
+    var item = '<div class="due-item"><span class="ibox" style="--c:var(--accent)">' + svg('calendar', 20) + '</span><div>' +
+      '<b>' + (dueFromRow ? esc(mv.label) + ' · ' + fmt(mv.amount) : 'Avez-vous dépensé ' + fmt(mv.amount) + ' ?') + '</b>' +
+      '<span>' + (dueFromRow ? '' : esc(mv.label) + ' · ') + esc(env ? env.name : 'Hors budget') + ' · prévu le ' + formatDateShort(mv.date) + '</span></div></div>';
+    var body = dueSheetRep
+      ? '<div class="field-group"><span class="field-cap">Reporter à</span><div class="chip-wrap">' +
+          '<button type="button" class="chip" data-action="due-postpone" data-days="1"><span class="chip-txt">Demain</span></button>' +
+          '<button type="button" class="chip" data-action="due-postpone" data-days="7"><span class="chip-txt">Dans 1 semaine</span></button></div></div>' +
+        '<div class="two-col"><label class="pill-field">' + svg('calendar', 16) + '<span class="sr-only">Nouvelle date</span><input type="date" id="due-date" min="' + tom + '" value="' + tom + '"></label>' +
+        '<button type="button" class="btn-primary" data-action="due-postpone-date">Reporter</button></div>'
+      : '<div class="due-btns">' +
+          '<button type="button" class="btn-primary big" data-action="due-yes">' + svg('check', 20) + 'Oui</button>' +
+          '<button type="button" class="btn-secondary" data-action="due-no">' + svg('x', 18) + 'Annulé</button>' +
+          '<button type="button" class="btn-secondary" data-action="due-later">' + svg('calendar', 18) + 'Reporté</button></div>';
+    return '<dialog class="sheet" id="due-sheet" aria-labelledby="due-title"><div class="sheet-body">' + head + item + body +
+      (dueFromRow ? '' : '<button type="button" class="link center" data-action="due-close">Plus tard</button>') + '</div></dialog>';
+  }
+  // Après une réponse : passe à la dépense suivante, ou ferme la feuille.
+  function advanceDue() {
+    var list = dueFromRow ? [] : duePlanned();
+    dueSheetRep = false;
+    if (list.length) { dueSheetId = list[0].id; render(); return; }
+    dueSheetId = null; dueFromRow = false;
+    closeDialog('due-sheet');
+    render();
+  }
+
   function renderConfirmDialog() {
     return '<dialog class="modal" id="confirm-dialog">' +
       '<div class="modal-form">' +
@@ -1107,7 +1221,7 @@
     state.recurring.paymentMethods.forEach(function (p) { ctx.payById[p.id] = p; });
     return ctx;
   }
-  function signedTotal(moves) { return moves.reduce(function (s, m) { return s + (m.type === 'income' ? m.amount : -m.amount); }, 0); }
+  function signedTotal(moves) { return moves.reduce(function (s, m) { return s + (m.planned ? 0 : (m.type === 'income' ? m.amount : -m.amount)); }, 0); }
   function fmtShort(n) { return fmt(n).replace(/,00(?=\s| | |€)/, ''); }
   function signedFmt(n) { return (n > 0 ? '+' : '') + fmt(n); }
   function pct(a, b) { return b > 0 ? Math.max(0, Math.min(100, (a / b) * 100)) : (a > 0 ? 100 : 0); }
@@ -1130,6 +1244,7 @@
       renderMovementSheet(view) +
       '<dialog class="sheet tall" id="picker-sheet" aria-label="Choisir"><div class="sheet-body" id="picker-body"></div></dialog>' +
       (page === 'movements' ? renderFilterSheet(view) + renderViewSheet() : '') +
+      renderDueSheet() +
       renderConfirmDialog() +
       renderInstallDialog();
   }
@@ -1174,15 +1289,22 @@
     var color = env ? tagColor(env.id) : (inc ? 'var(--good)' : 'var(--muted)');
     var icon = env ? '<span class="emo">' + env.icon + '</span>' : (inc ? svg('up', 18) : svg('dot', 18));
     var open = revealedMovementId === m.id;
-    return '<div class="mv' + (open ? ' open' : '') + '" data-id="' + m.id + '">' +
-      '<div class="mv-actions">' +
-        '<button type="button" class="mv-edit" data-action="edit-movement" data-id="' + m.id + '" tabindex="' + (open ? 0 : -1) + '">' + svg('edit', 18) + 'Modifier</button>' +
-        '<button type="button" class="mv-del" data-action="delete-movement" data-id="' + m.id + '" tabindex="' + (open ? 0 : -1) + '">' + svg('trash', 18) + 'Supprimer</button>' +
-      '</div>' +
+    var tab = 'tabindex="' + (open ? 0 : -1) + '"';
+    // Planifié : seulement des icônes (confirmer, reporter, modifier, annuler).
+    var actions = m.planned
+      ? '<button type="button" class="mv-ok" data-action="confirm-planned" data-id="' + m.id + '" ' + tab + ' aria-label="Confirmer la dépense" title="Confirmer">' + svg('check', 20) + '</button>' +
+        '<button type="button" class="mv-later" data-action="postpone-planned" data-id="' + m.id + '" ' + tab + ' aria-label="Reporter" title="Reporter">' + svg('calendar', 20) + '</button>' +
+        '<button type="button" class="mv-edit" data-action="edit-movement" data-id="' + m.id + '" ' + tab + ' aria-label="Modifier" title="Modifier">' + svg('edit', 20) + '</button>' +
+        '<button type="button" class="mv-del" data-action="delete-movement" data-id="' + m.id + '" ' + tab + ' aria-label="Annuler et libérer le montant" title="Annuler">' + svg('x', 20) + '</button>'
+      : '<button type="button" class="mv-edit" data-action="edit-movement" data-id="' + m.id + '" ' + tab + '>' + svg('edit', 18) + 'Modifier</button>' +
+        '<button type="button" class="mv-del" data-action="delete-movement" data-id="' + m.id + '" ' + tab + '>' + svg('trash', 18) + 'Supprimer</button>';
+    if (m.planned) icon = svg('calendar', 18);
+    return '<div class="mv' + (open ? ' open' : '') + (m.planned ? ' planned' : '') + '" data-id="' + m.id + '">' +
+      '<div class="mv-actions">' + actions + '</div>' +
       '<button type="button" class="mv-row" data-action="toggle-movement" data-id="' + m.id + '" aria-expanded="' + open + '">' +
         '<span class="ibox" style="--c:' + color + '">' + icon + '</span>' +
         '<span class="mv-main"><span class="mv-label">' + esc(m.label) + '</span>' +
-          '<span class="mv-sub">' + (tag ? '<span class="tag-pill" style="--c:' + tagColor(tag.id) + '">' + esc(tag.name) + '</span>' : '') +
+          '<span class="mv-sub">' + (m.planned ? '<span class="tag-pill planned-pill">Planifié</span>' : '') + (tag ? '<span class="tag-pill" style="--c:' + tagColor(tag.id) + '">' + esc(tag.name) + '</span>' : '') +
           '<span class="mv-sub-txt">' + esc(what) + ' · ' + formatDateShort(m.date) + (pay ? ' · ' + esc(pay.name) : '') + '</span></span>' +
         '</span>' +
         '<span class="mv-amt' + (inc ? ' inc' : '') + '">' + (inc ? '+' : '−') + fmt(m.amount) + '</span>' +
@@ -1207,22 +1329,28 @@
     var w = activeWeek(view);
     var cur = currentWeekIndex(view);
     var netSpent = view.totalOutflow - view.recurringFixedTotal;
-    var reste = view.totalIncome - view.recurringFixedDue - netSpent;
+    var planned = view.plannedTotal;
+    // Les planifiés sont déjà réservés : ils sortent du reste sans compter dans « Dépensé ».
+    var reste = view.totalIncome - view.recurringFixedDue - netSpent - planned;
     var available = view.totalIncome - view.recurringFixedDue;
     var spentPct = pct(Math.max(0, netSpent), available);
+    var plannedPct = Math.min(100 - spentPct, pct(planned, available));
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span>' +
+        (planned > 0 ? '<span class="hero-plan">dont <b>' + fmt(planned) + '</b> planifiés</span>' : '') +
         '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel (fixes payés) <b>' + fmt(view.endingBalance) + '</b></span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +
-        '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span></div>' +
-        infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).<br><b>Grand chiffre</b> : revenus − tous les frais fixes du mois (payés ou non) − dépensé.<br><b>Solde actuel</b> : revenus − frais fixes cochés payés − dépensé, soit ce qu’il y a réellement en caisse.', 'hero-gauge-cap') +
+        '<div class="hero-bar single" aria-hidden="true"><span class="seg seg-spent' + (reste < 0 ? ' over' : '') + '" style="width:' + spentPct.toFixed(2) + '%"></span>' +
+          (planned > 0 ? '<span class="seg seg-planned" style="width:' + plannedPct.toFixed(2) + '%"></span>' : '') + '</div>' +
+        infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).<br><b>Grand chiffre</b> : revenus − tous les frais fixes du mois (payés ou non) − dépensé − planifié.<br><b>Planifié</b> : dépenses prévues à une date, réservées dans leur budget mais pas encore dépensées.<br><b>Solde actuel</b> : revenus − frais fixes cochés payés − dépensé, soit ce qu’il y a réellement en caisse.', 'hero-gauge-cap') +
       '</div>' +
-      '<div class="hero-stats">' +
+      '<div class="hero-stats' + (planned > 0 ? ' four' : '') + '">' +
         '<div><span>Revenus</span><b>' + fmt(view.totalIncome) + '</b></div>' +
         '<div><span>Frais fixes</span><b>' + fmt(view.recurringFixedDue) + '</b></div>' +
         '<div><span>Dépensé</span><b>' + fmt(netSpent) + '</b></div>' +
+        (planned > 0 ? '<div><span>Planifié</span><b>' + fmt(planned) + '</b></div>' : '') +
       '</div></section>';
 
     var weekChips = '';
@@ -1236,21 +1364,25 @@
     var monthMode = budgetMode === 'month';
     var ranked = view.envelopes.map(function (env) {
       var a = monthMode ? env.amount : env.effectiveWeeks[w], s = monthMode ? env.spentTotal : env.spentByWeek[w], p = monthMode ? env.amount : env.weeks[w];
-      return { env: env, alloc: a, spent: s, plan: p, report: monthMode ? 0 : Math.max(0, p - a), ratio: a > 0 ? s / a : (s > 0 ? 99 : 0) };
+      var pl = monthMode ? env.plannedTotal : env.plannedByWeek[w];
+      return { env: env, alloc: a, spent: s, planned: pl, plan: p, report: monthMode ? 0 : Math.max(0, p - a), ratio: a > 0 ? (s + pl) / a : (s + pl > 0 ? 99 : 0) };
     }).sort(function (a, b) { return b.ratio - a.ratio; });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
       // Dispo = prévu de la semaine − dépassement reporté de la semaine précédente ;
-      // grand chiffre = reste réel (dispo − dépensé) ; jauge = dépensé / dispo.
-      var rem = r.alloc - r.spent, over = rem < 0;
+      // grand chiffre = reste réel (dispo − dépensé − planifié) ; jauge = dépensé (plein)
+      // puis planifié (hachuré) sur le dispo.
+      var rem = r.alloc - r.spent - r.planned, over = rem < 0;
       var gauge = r.alloc > 0 ? pct(r.spent, r.alloc) : (r.spent > 0 || r.report ? 100 : 0);
-      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + (over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem)) + ', disponible ' + fmtShort(r.alloc) + ' sur ' + fmtShort(r.plan) + ' prévus, ' + fmtShort(r.spent) + ' dépensés">' +
+      var plGauge = r.planned > 0 ? (r.alloc > 0 ? Math.min(100 - gauge, pct(r.planned, r.alloc)) : 0) : 0;
+      return '<button type="button" class="budget-tile' + (over ? ' over' : '') + '" data-action="open-budget" data-id="' + r.env.id + '" aria-label="' + esc(r.env.name) + ' : ' + (over ? 'dépassé de ' + fmtShort(-rem) : 'reste ' + fmtShort(rem)) + ', disponible ' + fmtShort(r.alloc) + ' sur ' + fmtShort(r.plan) + ' prévus, ' + fmtShort(r.spent) + ' dépensés' + (r.planned > 0 ? ', ' + fmtShort(r.planned) + ' planifiés' : '') + '">' +
         '<span class="budget-tile-head"><span class="ibox sm" style="--c:' + tagColor(r.env.id) + '"><span class="emo">' + r.env.icon + '</span></span>' +
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
         '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b></span>' +
-        '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span></span>' +
+        '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span>' + (plGauge > 0 ? '<i class="bar-planned" style="left:' + gauge.toFixed(1) + '%;width:' + plGauge.toFixed(1) + '%"></i>' : '') + '</span>' +
         (monthMode ? '<span class="tile-foot">sur <b>' + fmtShort(r.plan) + '</b> prévus</span>'
           : '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>') +
+        (r.planned > 0 ? '<span class="tile-foot tile-planned">dont <b>' + fmtShort(r.planned) + '</b> planifiés</span>' : '') +
         '</button>';
     }).join('');
     var budgetsBlock = view.envelopes.length
@@ -1259,8 +1391,13 @@
       : '<p class="empty-card">Aucun budget ce mois-ci. <button type="button" class="link" data-action="goto-settings" data-section="settings-budgets">Créer un budget</button></p>';
 
     var ctx = moveCtx(view);
-    var weekMoves = view.movements.filter(function (m) { return m.weekIndex === w; });
-    return renderInstallBanner() + hero +
+    var weekMoves = view.allMovements.filter(function (m) { return m.weekIndex === w; });
+    var dueList = duePlanned();
+    var dueCard = dueList.length
+      ? '<button type="button" class="due-card" data-action="open-due"><span class="ibox sm" style="--c:var(--accent)">' + svg('bell', 18) + '</span>' +
+        '<span class="due-main"><b>À confirmer</b><span>' + dueList.length + (dueList.length > 1 ? ' dépenses planifiées arrivées à échéance' : ' dépense planifiée arrivée à échéance') + '</span></span>' + svg('chevR', 18) + '</button>'
+      : '';
+    return renderInstallBanner() + hero + dueCard +
       '<div class="week-chips">' + weekChips + '</div>' +
       '<section class="block"><div class="block-head"><h2>Budgets' + infoBtn('budgets', 'Explication des cartes budget') + '</h2>' +
         '<span class="seg" role="group" aria-label="Période des budgets"><button type="button" data-action="budget-mode" data-mode="week" aria-pressed="' + !monthMode + '">Semaine</button><button type="button" data-action="budget-mode" data-mode="month" aria-pressed="' + monthMode + '">Mois</button></span></div>' +
@@ -1277,7 +1414,7 @@
     var env = view.envelopes.find(function (e) { return e.id === budgetDetailId; });
     if (!env) return renderHomePage(view);
     var w = activeWeek(view);
-    var alloc = env.effectiveWeeks[w], spent = env.spentByWeek[w], rem = alloc - spent, over = rem < 0;
+    var alloc = env.effectiveWeeks[w], spent = env.spentByWeek[w], plannedW = env.plannedByWeek[w], rem = alloc - spent - plannedW, over = rem < 0;
     var dash = (pct(spent, alloc) / 100 * 414.7).toFixed(1);
     var maxRatio = Math.max.apply(null, env.weeks.map(function (_, i) { return env.effectiveWeeks[i] > 0 ? env.spentByWeek[i] / env.effectiveWeeks[i] : 0; }).concat([1]));
     var bars = env.weeks.map(function (_, i) {
@@ -1302,7 +1439,8 @@
           '<div class="fact"><span>Prévu</span><b>' + fmt(env.weeks[w]) + '</b></div>' +
           (env.weeks[w] - alloc > 0.004 ? '<div class="fact report"><span>Report S' + w + '</span><b>−' + fmt(env.weeks[w] - alloc) + '</b></div>' : '') +
           '<div class="fact"><span>Dépensé</span><b>' + fmt(spent) + '</b></div>' +
-          '<div class="fact sep"><span>Mois</span><b>' + fmt(env.spentTotal) + ' / ' + fmt(env.amount) + '</b></div>' +
+          (plannedW > 0 ? '<div class="fact"><span>Planifié</span><b>' + fmt(plannedW) + '</b></div>' : '') +
+          '<div class="fact sep"><span>Mois</span><b>' + fmt(env.spentTotal) + (env.plannedTotal > 0 ? ' + ' + fmt(env.plannedTotal) + ' planifiés' : '') + ' / ' + fmt(env.amount) + '</b></div>' +
         '</div></section>' +
       '<section class="card"><div class="block-head"><h2>Par semaine</h2><span class="muted-sm">touche une semaine</span></div>' +
         '<div class="wbars" style="--n:' + env.weeks.length + '">' + bars + '</div></section>' +
@@ -1323,7 +1461,8 @@
   }
   function filterMovements(moves, q, ctx) {
     return moves.filter(function (m) {
-      if (movementTypeFilter !== 'all' && m.type !== movementTypeFilter) return false;
+      if (movementTypeFilter === 'planned') { if (!m.planned) return false; }
+      else if (movementTypeFilter !== 'all' && m.type !== movementTypeFilter) return false;
       if (filterEnvelopeId && (filterEnvelopeId === 'none' ? !!m.envelopeId : m.envelopeId !== filterEnvelopeId)) return false;
       if (filterTagId && (filterTagId === 'none' ? !!m.tagId : m.tagId !== filterTagId)) return false;
       if (filterPaymentId && (filterPaymentId === 'none' ? !!m.paymentMethodId : m.paymentMethodId !== filterPaymentId)) return false;
@@ -1358,7 +1497,7 @@
       '</div>';
 
     var pills = [];
-    if (movementTypeFilter !== 'all') pills.push({ key: 'type', name: movementTypeFilter === 'expense' ? 'Dépenses' : 'Revenus' });
+    if (movementTypeFilter !== 'all') pills.push({ key: 'type', name: movementTypeFilter === 'expense' ? 'Dépenses' : (movementTypeFilter === 'planned' ? 'Planifiés' : 'Revenus') });
     if (filterEnvelopeId) pills.push({ key: 'envelope', name: filterEnvelopeId === 'none' ? 'Hors budget' : (ctx.envById[filterEnvelopeId] ? ctx.envById[filterEnvelopeId].name : 'Budget') });
     if (filterTagId) pills.push({ key: 'tag', name: filterTagId === 'none' ? 'Sans tag' : '#' + (ctx.tagById[filterTagId] ? ctx.tagById[filterTagId].name : 'tag') });
     if (filterPaymentId) pills.push({ key: 'payment', name: filterPaymentId === 'none' ? 'Sans mode de paiement' : (ctx.payById[filterPaymentId] ? ctx.payById[filterPaymentId].name : 'Paiement') });
@@ -1369,7 +1508,7 @@
     }
 
     if (q || fcount) {
-      var res = filterMovements(view.movements, q, ctx);
+      var res = filterMovements(view.allMovements, q, ctx);
       html += '<div class="block-head"><h2>' + countLabel(res.length) + '</h2><span class="grp-total">' + signedFmt(signedTotal(res)) + '</span></div>' +
         moveListHtml(res, ctx, 'Aucun mouvement ne correspond.') +
         '<button type="button" class="btn-ghost" data-action="clear-filters">Effacer la recherche et les filtres</button>';
@@ -1377,7 +1516,7 @@
     }
 
     html += '<div class="block-head"><h2>' + curView.title + '</h2><button type="button" class="link" data-action="open-view-sheet">Changer de vue</button></div>';
-    var moves = view.movements;
+    var moves = view.allMovements;
     var groups = [];
     if (movementGroupBy === 'budget') {
       view.envelopes.forEach(function (env) {
@@ -1423,12 +1562,12 @@
 
   function renderFilterSheet(view) {
     var ctx = moveCtx(view);
-    var res = filterMovements(view.movements, movementSearchQuery.trim().toLowerCase(), ctx);
+    var res = filterMovements(view.allMovements, movementSearchQuery.trim().toLowerCase(), ctx);
     function chip(key, val, name, color, sel) {
       return '<button type="button" class="chip' + (sel ? ' sel' : '') + '" data-action="set-filter" data-key="' + key + '" data-val="' + val + '" aria-pressed="' + sel + '">' +
         (color ? '<span class="dot" style="--c:' + color + '"></span>' : '') + '<span class="chip-txt">' + esc(name) + '</span></button>';
     }
-    var types = [['all', 'Tout'], ['expense', 'Dépenses'], ['income', 'Revenus']].map(function (t) {
+    var types = [['all', 'Tout'], ['expense', 'Dépenses'], ['income', 'Revenus'], ['planned', 'Planifiés']].map(function (t) {
       var sel = movementTypeFilter === t[0];
       return '<button type="button" class="seg-btn' + (sel ? ' sel' : '') + '" data-action="set-filter" data-key="type" data-val="' + t[0] + '" aria-pressed="' + sel + '">' + t[1] + '</button>';
     }).join('');
@@ -1510,7 +1649,7 @@
     return weeks[w] != null ? isoOf(weekStartDateOfIndex(weeks[w])) : todayISO();
   }
   function renderMovementSheet(view) {
-    var mv = editingMovementId ? view.movements.find(function (m) { return m.id === editingMovementId; }) : null;
+    var mv = editingMovementId ? view.allMovements.find(function (m) { return m.id === editingMovementId; }) : null;
     var isInc = !!(mv && mv.type === 'income');
     var envId = mv ? mv.envelopeId : defaultEnvelopeId(view);
     var tagId = mv ? mv.tagId : null;
@@ -1518,6 +1657,8 @@
     var payOptions = '<option value="">Sans mode de paiement</option>' + state.recurring.paymentMethods.map(function (p) {
       return '<option value="' + p.id + '"' + (payId === p.id ? ' selected' : '') + '>' + p.icon + ' ' + esc(p.name) + '</option>';
     }).join('');
+    var mvDate = mv ? mv.date : defaultMovementDate(view);
+    var askNow = !mv && mvDate > todayISO();
     return '<dialog class="sheet" id="movement-modal" aria-labelledby="mv-title">' +
       '<form class="sheet-body" data-form="add-movement" novalidate>' +
         '<div class="grabber"></div>' +
@@ -1540,8 +1681,15 @@
           '<input type="hidden" name="tagId" value="' + esc(tagId || '') + '"><input type="hidden" name="newTagName" value="">' +
           '<div class="quick-row" data-quick="tag">' + quickChips('tag', tagId, isInc, view) + '</div></div>' +
         '<div class="two-col">' +
-          '<label class="pill-field">' + svg('calendar', 16) + '<span class="sr-only">Date</span><input type="date" name="date" value="' + (mv ? mv.date : defaultMovementDate(view)) + '" required></label>' +
+          '<label class="pill-field">' + svg('calendar', 16) + '<span class="sr-only">Date</span><input type="date" name="date" data-field="mv-date" value="' + mvDate + '" required></label>' +
           '<label class="pill-field">' + svg('card', 16) + '<span class="sr-only">Mode de paiement</span><select name="paymentMethodId">' + payOptions + '</select></label>' +
+        '</div>' +
+        '<div class="planned-block" data-role="planned-block"' + (isInc ? ' hidden' : '') + '>' +
+          '<div class="planned-ask" data-role="planned-ask"' + (askNow ? '' : ' hidden') + '><span>Date à venir : dépense réelle ou planifiée ?</span>' +
+            '<span class="planned-ask-btns"><button type="button" class="chip" data-action="planned-answer" data-val="real">Réelle</button><button type="button" class="chip" data-action="planned-answer" data-val="plan">Planifiée</button></span></div>' +
+          '<label class="switch-row"><span class="switch-txt"><b>Planifié</b><span>Réserve le montant dans le budget sans le dépenser</span></span>' +
+            '<input type="checkbox" class="switch" name="planned" data-field="mv-planned" role="switch"' + (mv && mv.planned ? ' checked' : '') + '></label>' +
+          '<input type="hidden" name="plannedAnswered" value="' + (mv ? '1' : '0') + '">' +
         '</div>' +
         '<button type="submit" class="btn-primary big">' + svg('check', 20) + (mv ? 'Enregistrer' : 'Ajouter') + '</button>' +
       '</form></dialog>';
@@ -1564,6 +1712,16 @@
     var amount = form.querySelector('.amount-field');
     amount.classList.toggle('inc', isInc);
     amount.querySelector('.amount-sign').textContent = isInc ? '+' : '−';
+    if (isInc) form.elements.planned.checked = false;
+    syncPlannedUi(form);
+  }
+  // Interrupteur « Planifié » : masqué pour un revenu ; pour une date à venir et tant
+  // que rien n'est répondu, l'appli demande si la dépense est réelle ou planifiée.
+  function syncPlannedUi(form) {
+    var isInc = form.querySelector('input[name="type"]:checked').value === 'income';
+    var future = (form.elements.date.value || '') > todayISO();
+    form.querySelector('[data-role="planned-block"]').hidden = isInc;
+    form.querySelector('[data-role="planned-ask"]').hidden = isInc || !future || form.elements.plannedAnswered.value === '1';
   }
   // Sélecteur plein écran (recherche, fréquents, liste complète) pour 20 budgets ou tags et plus.
   function openPicker(kind) {
@@ -1750,6 +1908,7 @@
       renderPaymentMethodsCard(st) +
       renderGeneralSettingsCard(st) +
       renderInstallCard() +
+      renderPushCard() +
       renderAccountCard() +
       '</div>' +
       renderIconModal(st, view);
@@ -2004,6 +2163,77 @@
           '<button type="button" class="btn-add" data-action="install">📲 Installer l’app</button>') +
       '</div></details></section>';
   }
+  // --- Notifications push (niveau 2) ---
+  var pushCardHtml = null;
+  function pushSupported() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+  function urlB64ToBytes(b64) {
+    var pad = '='.repeat((4 - b64.length % 4) % 4);
+    var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function swReady() {
+    return Promise.race([navigator.serviceWorker.ready, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('sw')); }, 3000); })]);
+  }
+  function renderPushCard() {
+    var isOpen = openAccordions.has('settings-push');
+    return '<section class="card"><details data-key="settings-push"' + (isOpen ? ' open' : '') + '><summary class="card-title">Notifications</summary>' +
+      '<div class="settings-body" id="push-card">' + (pushCardHtml || '<p class="empty-note">Vérification…</p>') + '</div></details></section>';
+  }
+  function refreshPushCard() {
+    var intro = 'Le jour d’une dépense planifiée, l’appli te demande « Avez-vous dépensé … ? » (Oui, Reporter, Annuler). ';
+    function show(html) {
+      pushCardHtml = html;
+      var box = document.getElementById('push-card');
+      if (box) box.innerHTML = html;
+    }
+    if (!pushSupported()) {
+      show('<p class="empty-note">' + intro + 'Ce navigateur ne gère pas les notifications (sur iPhone, installe d’abord l’app sur l’écran d’accueil). La carte « À confirmer » de l’accueil te rappelle quand même les dépenses à échéance.</p>');
+      return;
+    }
+    apiFetch('/api/push/key').then(function (r) { return r.json(); }).then(function (k) {
+      if (!k.enabled) {
+        show('<p class="empty-note">' + intro + 'Les notifications ne sont pas activées sur le serveur (clés manquantes dans .env). La carte « À confirmer » de l’accueil reste active.</p>');
+        return;
+      }
+      return swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        var denied = Notification.permission === 'denied';
+        show('<p class="empty-note">' + intro + (sub ? '✓ Activées sur cet appareil.' : (denied ? 'Les notifications sont bloquées pour ce site dans les réglages du navigateur.' : '')) + '</p>' +
+          (sub ? '<button type="button" class="btn-secondary" data-action="push-test">Envoyer une notification test</button><button type="button" class="btn-secondary" data-action="push-disable">Désactiver</button>'
+            : (denied ? '' : '<button type="button" class="btn-add" data-action="push-enable">🔔 Activer les notifications</button>')));
+      });
+    }).catch(function () {
+      show('<p class="empty-note">' + intro + 'Réglage indisponible pour l’instant (hors ligne ou service worker absent).</p>');
+    });
+  }
+  function enablePush() {
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') { showToast('Notifications refusées.'); refreshPushCard(); return; }
+      return apiFetch('/api/push/key').then(function (r) { return r.json(); }).then(function (k) {
+        return swReady().then(function (reg) { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToBytes(k.key) }); });
+      }).then(function (sub) {
+        return apiFetch('/api/push/subscribe', { method: 'POST', body: sub.toJSON() });
+      }).then(function (r) {
+        showToast(r.ok ? 'Notifications activées.' : 'Activation impossible.');
+        refreshPushCard();
+      });
+    }).catch(function () { showToast('Activation impossible.'); refreshPushCard(); });
+  }
+  function disablePush() {
+    swReady().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      if (!sub) return;
+      var endpoint = sub.endpoint;
+      return sub.unsubscribe().then(function () { return apiFetch('/api/push/unsubscribe', { method: 'POST', body: { endpoint: endpoint } }); });
+    }).then(function () { showToast('Notifications désactivées.'); refreshPushCard(); })
+      .catch(function () { showToast('Désactivation impossible.'); });
+  }
+  function testPush() {
+    apiFetch('/api/push/test', { method: 'POST' }).then(function (r) { return r.json(); })
+      .then(function (j) { showToast(j.sent ? 'Notification envoyée.' : 'Aucun appareil abonné.'); })
+      .catch(function () { showToast('Envoi impossible.'); });
+  }
+
   function installStep(n, html) { return '<li><span class="install-step-num">' + n + '</span><span>' + html + '</span></li>'; }
   function renderInstallDialog() {
     var safari = isIos() && !/crios|fxios|edgios/i.test(navigator.userAgent);
@@ -2070,7 +2300,7 @@
     var copy = clone(mv);
     revealedMovementId = null;
     mutate(function () { removeMovement(selectedMonthKey, id); });
-    showToast('« ' + copy.label + ' » supprimé', 'Annuler', function () {
+    showToast('« ' + copy.label + ' » ' + (copy.planned ? 'annulé · montant libéré' : 'supprimé'), 'Annuler', function () {
       mutate(function () { ensureMonth(key).movements.push(copy); });
     });
   }
@@ -2232,6 +2462,66 @@
       return;
     }
     if (action === 'delete-movement') { deleteMovementWithUndo(btn.dataset.id); return; }
+    if (action === 'push-enable') { enablePush(); return; }
+    if (action === 'push-disable') { disablePush(); return; }
+    if (action === 'push-test') { testPush(); return; }
+    if (action === 'planned-answer') {
+      var aForm = btn.closest('form');
+      aForm.elements.plannedAnswered.value = '1';
+      aForm.elements.planned.checked = btn.dataset.val === 'plan';
+      syncPlannedUi(aForm);
+      return;
+    }
+    if (action === 'confirm-planned') {
+      var cMv = findMovement(btn.dataset.id);
+      revealedMovementId = null;
+      mutate(function () { confirmPlanned(btn.dataset.id); });
+      showToast(cMv ? '« ' + cMv.label + ' » confirmé · dépense enregistrée' : 'Dépense confirmée');
+      return;
+    }
+    if (action === 'postpone-planned') {
+      revealedMovementId = null;
+      dueSheetId = btn.dataset.id; dueSheetRep = true; dueFromRow = true;
+      render();
+      openDialog('due-sheet');
+      return;
+    }
+    if (action === 'open-due') {
+      var firstDue = duePlanned()[0];
+      if (!firstDue) return;
+      dueSheetId = firstDue.id; dueSheetRep = false; dueFromRow = false;
+      render();
+      openDialog('due-sheet');
+      return;
+    }
+    if (action === 'due-close') {
+      if (!dueFromRow) dueDismissedDay = todayISO();
+      dueSheetId = null; dueFromRow = false; dueSheetRep = false;
+      closeDialog('due-sheet');
+      return;
+    }
+    if (action === 'due-later') { dueSheetRep = true; render(); return; }
+    if (action === 'due-yes' && dueSheetId) {
+      var yMv = findMovement(dueSheetId);
+      mutate(function () { confirmPlanned(dueSheetId); });
+      showToast(yMv ? '« ' + yMv.label + ' » confirmé · dépense enregistrée' : 'Dépense confirmée');
+      advanceDue();
+      return;
+    }
+    if (action === 'due-no' && dueSheetId) {
+      var nId = dueSheetId;
+      deleteMovementWithUndo(nId);
+      advanceDue();
+      return;
+    }
+    if ((action === 'due-postpone' || action === 'due-postpone-date') && dueSheetId) {
+      var pDate = action === 'due-postpone' ? addDaysISO(todayISO(), parseInt(btn.dataset.days, 10)) : (document.getElementById('due-date').value || '');
+      if (!isISODate(pDate) || pDate <= todayISO()) { showToast('Choisis une date à venir.'); return; }
+      mutate(function () { postponePlanned(dueSheetId, pDate); });
+      showToast('Reporté au ' + formatDateShort(pDate));
+      advanceDue();
+      return;
+    }
     if (action === 'pick-icon') {
       var grid = btn.closest('.icon-grid');
       var hiddenInput = document.getElementById('icon-input-new');
@@ -2348,6 +2638,13 @@
         mvForm.elements.envelopeId.value = el.value === 'income' ? '' : (defaultEnvelopeId(computeMonthView(state, selectedMonthKey, {})) || '');
       }
       refreshSheetChips(mvForm);
+      return;
+    }
+    if (field === 'mv-date' || field === 'mv-planned') {
+      var pForm = el.closest('form');
+      if (!pForm) return;
+      pForm.elements.plannedAnswered.value = field === 'mv-planned' ? '1' : '0';
+      syncPlannedUi(pForm);
       return;
     }
     if (field === 'movement-tag-select') {
@@ -2625,6 +2922,12 @@
         label = mtype === 'income' ? (labelEnv ? 'Remboursement ' + labelEnv.name : 'Revenu') : (labelEnv ? labelEnv.name : 'Dépense');
       }
 
+      var planned = mtype === 'expense' && !!form.elements.planned.checked;
+      if (mtype === 'expense' && date > todayISO() && form.elements.plannedAnswered.value !== '1') {
+        syncPlannedUi(form);
+        showToast('Date à venir : indique si la dépense est réelle ou planifiée.');
+        return;
+      }
       var invalidFields = [];
       if (Number.isNaN(amount) || amount <= 0) invalidFields.push('amount');
       if (invalidFields.length) {
@@ -2640,14 +2943,14 @@
       mutate(function () {
         if (tagId === '__new_tag__') tagId = newTagName ? addTag(newTagName) : null;
         if (movementId) {
-          updateMovement(selectedMonthKey, movementId, date, mtype, label, amount, envelopeId, tagId, paymentMethodId);
+          updateMovement(selectedMonthKey, movementId, date, mtype, label, amount, envelopeId, tagId, paymentMethodId, planned);
         } else {
-          addMovement(selectedMonthKey, date, mtype, label, amount, envelopeId, tagId, paymentMethodId);
+          addMovement(selectedMonthKey, date, mtype, label, amount, envelopeId, tagId, paymentMethodId, planned);
         }
       });
       var shownKey = movementMonthKey(state, { date: date, envelopeId: envelopeId }, selectedMonthKey);
       if (shownKey !== selectedMonthKey) showToast('Mouvement du ' + formatDateShort(date) + ' rangé dans ' + monthLabel(shownKey) + '.');
-      else showToast(!online ? 'Gardé sur l’appareil · envoi au retour du réseau' : (movementId ? 'Mouvement modifié' : 'Mouvement ajouté'));
+      else showToast(!online ? 'Gardé sur l’appareil · envoi au retour du réseau' : (planned ? 'Dépense planifiée · montant réservé' : (movementId ? 'Mouvement modifié' : 'Mouvement ajouté')));
     }
   }
 

@@ -150,3 +150,13 @@ Puis ouvre `http://localhost:3000`. En local (`http://`, pas `https://`), laisse
 - Un seul compte partagé pour tout le foyer (comme avant), pas de comptes multiples avec des rôles différents.
 - Pas de protection CSRF dédiée au-delà du cookie `SameSite=Lax` — suffisant pour un usage privé sur un domaine à toi, mais à garder en tête si tu exposes ce serveur plus largement.
 - La synchronisation entre appareils se fait par relecture périodique (toutes les 20 secondes), pas en temps réel instantané.
+
+## Notifications des dépenses planifiées (facultatif)
+
+Le jour de leur date, les dépenses planifiées peuvent déclencher une notification « Avez-vous dépensé … ? » (Oui / Reporter / Annuler).
+
+1. `npm run vapid` génère une paire de clés ; recopie-les dans `.env` (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, voir `.env.example`, ainsi que `APP_TZ` et `PUSH_HOUR`).
+2. `npm install --omit=dev` puis `pm2 restart fee-lezcomptes`.
+3. Sur chaque appareil : Réglages > Notifications > Activer (sur iPhone, l'app doit d'abord être installée sur l'écran d'accueil).
+
+Sans clés, la carte « À confirmer » de l'accueil rappelle quand même les dépenses arrivées à échéance.

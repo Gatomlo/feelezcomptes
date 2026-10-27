@@ -174,6 +174,10 @@ app.put("/api/state", requireAuth, (req, res) => {
   res.json({ ok: true, version });
 });
 
+// --- Notifications push (dépenses planifiées) ---
+
+require("./push").mount(app, requireAuth);
+
 // --- Fichiers statiques (front-end) ---
 
 app.use(express.static(path.join(__dirname, "..", "public")));
