@@ -501,8 +501,10 @@ dialog { color: var(--ink); }
 .hero-plan { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--dark-muted); }
 .hero-plan b { color: var(--cream, #fff); font-weight: 800; }
 .budget-tile .bar { position: relative; }
-.tile-planned { color: var(--accent); }
-.hero-stats.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tile-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; white-space: nowrap; min-width: 0; }
+.tile-planned { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--accent); }
+.hero-plan { display: flex; align-items: center; gap: 5px; }
+.hero-stats.four { grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 10px; }
 .hero-stats.four b { font-size: 13.5px; }
 .seg-planned { background: repeating-linear-gradient(45deg, var(--accent) 0 3px, var(--dark-2) 3px 6px); }
 .bar-planned { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--accent) 0 3px, color-mix(in srgb, var(--accent) 25%, var(--surface)) 3px 6px); }
@@ -536,3 +538,11 @@ input.switch:checked { background: var(--accent); }
 input.switch:checked::after { transform: translateX(18px); }
 input.switch:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
 .push-note { font-size: 12.5px; color: var(--muted); font-weight: 600; margin: 6px 0 0; }
+
+/* Carte du haut : le badge reste sur la ligne du titre, le gros montant prend toute la largeur
+   (sinon, sur écran étroit, le montant repousse le badge contre le bord de la carte). */
+.hero-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 10px; }
+.hero-top > div { display: contents; }
+.hero-top > div > * { grid-column: 1 / -1; }
+.hero-top > div > .hero-cap { grid-column: 1; }
+.hero-top > .hero-badge { grid-column: 2; grid-row: 1; justify-self: end; }

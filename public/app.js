@@ -1338,7 +1338,7 @@
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span>' +
-        (planned > 0 ? '<span class="hero-plan">dont <b>' + fmt(planned) + '</b> planifiés</span>' : '') +
+        (planned > 0 ? '<span class="hero-plan">' + svg('calendar', 13) + '<b>' + fmtShort(planned) + '</b> planifiés</span>' : '') +
         '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel (fixes payés) <b>' + fmt(view.endingBalance) + '</b></span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +
@@ -1347,10 +1347,10 @@
         infoText('hero', '<b>' + fmt(netSpent) + '</b> dépensés sur <b>' + fmt(available) + '</b> disponibles après les frais fixes (revenus − frais fixes).<br><b>Grand chiffre</b> : revenus − tous les frais fixes du mois (payés ou non) − dépensé − planifié.<br><b>Planifié</b> : dépenses prévues à une date, réservées dans leur budget mais pas encore dépensées.<br><b>Solde actuel</b> : revenus − frais fixes cochés payés − dépensé, soit ce qu’il y a réellement en caisse.', 'hero-gauge-cap') +
       '</div>' +
       '<div class="hero-stats' + (planned > 0 ? ' four' : '') + '">' +
-        '<div><span>Revenus</span><b>' + fmt(view.totalIncome) + '</b></div>' +
-        '<div><span>Frais fixes</span><b>' + fmt(view.recurringFixedDue) + '</b></div>' +
-        '<div><span>Dépensé</span><b>' + fmt(netSpent) + '</b></div>' +
-        (planned > 0 ? '<div><span>Planifié</span><b>' + fmt(planned) + '</b></div>' : '') +
+        '<div><span>Revenus</span><b>' + fmtShort(view.totalIncome) + '</b></div>' +
+        '<div><span>Frais fixes</span><b>' + fmtShort(view.recurringFixedDue) + '</b></div>' +
+        '<div><span>Dépensé</span><b>' + fmtShort(netSpent) + '</b></div>' +
+        (planned > 0 ? '<div><span>Planifié</span><b>' + fmtShort(planned) + '</b></div>' : '') +
       '</div></section>';
 
     var weekChips = '';
@@ -1380,9 +1380,9 @@
         '<span class="budget-tile-name">' + esc(r.env.name) + '</span></span>' +
         '<span class="tile-ratio"><b>' + fmtShort(rem) + '</b></span>' +
         '<span class="bar"><span style="width:' + gauge.toFixed(1) + '%"></span>' + (plGauge > 0 ? '<i class="bar-planned" style="left:' + gauge.toFixed(1) + '%;width:' + plGauge.toFixed(1) + '%"></i>' : '') + '</span>' +
-        (monthMode ? '<span class="tile-foot">sur <b>' + fmtShort(r.plan) + '</b> prévus</span>'
-          : '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc) + '</b> / ' + fmtShort(r.plan) + '</span>') +
-        (r.planned > 0 ? '<span class="tile-foot tile-planned">dont <b>' + fmtShort(r.planned) + '</b> planifiés</span>' : '') +
+        '<span class="tile-foot-row">' + (monthMode ? '<span class="tile-foot">sur <b>' + fmtShort(r.plan) + '</b></span>'
+          : '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc).replace(/\s*€$/, '') + '</b>/' + fmtShort(r.plan) + '</span>') +
+        (r.planned > 0 ? '<span class="tile-planned" title="Planifié">' + svg('calendar', 12) + fmtShort(r.planned) + '</span>' : '') + '</span>' +
         '</button>';
     }).join('');
     var budgetsBlock = view.envelopes.length
@@ -1395,7 +1395,7 @@
     var dueList = duePlanned();
     var dueCard = dueList.length
       ? '<button type="button" class="due-card" data-action="open-due"><span class="ibox sm" style="--c:var(--accent)">' + svg('bell', 18) + '</span>' +
-        '<span class="due-main"><b>À confirmer</b><span>' + dueList.length + (dueList.length > 1 ? ' dépenses planifiées arrivées à échéance' : ' dépense planifiée arrivée à échéance') + '</span></span>' + svg('chevR', 18) + '</button>'
+        '<span class="due-main"><b>À confirmer</b><span>' + dueList.length + (dueList.length > 1 ? ' dépenses planifiées' : ' dépense planifiée') + '</span></span>' + svg('chevR', 18) + '</button>'
       : '';
     return renderInstallBanner() + hero + dueCard +
       '<div class="week-chips">' + weekChips + '</div>' +
