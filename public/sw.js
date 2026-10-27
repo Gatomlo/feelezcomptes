@@ -6,8 +6,8 @@
 //   les synchronise au retour du réseau.
 // - Notifications push : « Avez-vous dépensé … ? » pour les dépenses planifiées (Oui / Reporter / Annuler).
 // Changer VERSION quand la liste FILES change.
-var VERSION = 'fl-v5';
-var FILES = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.json', 'logo.svg', 'logo.png', 'icon-192.png', 'icon-384.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
+var VERSION = 'fl-v6';
+var FILES = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.json', 'logo.svg', 'logo.png', 'icon-192.png', 'icon-384.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'badge-96.png'];
 var TIMEOUT_MS = 4000;
 
 self.addEventListener('install', function (e) {
@@ -72,7 +72,7 @@ self.addEventListener('push', function (e) {
     body: data.body || '',
     tag: data.id ? 'planned-' + data.id : 'fl-info',
     icon: 'icon-192.png',
-    badge: 'icon-192.png',
+    badge: 'badge-96.png',
     data: { id: data.id || '' },
     actions: actions
   }));
