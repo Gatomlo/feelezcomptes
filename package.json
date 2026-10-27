@@ -6,8 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "set-password": "node scripts/set-password.js",
-    "vapid": "web-push generate-vapid-keys"
+    "set-password": "node scripts/set-password.js"
   },
   "engines": {
     "node": ">=22.5.0"

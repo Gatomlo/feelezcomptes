@@ -1,27 +1,25 @@
 "use strict";
 
 // Notifications push (niveau 2) : le jour de leur date, les dépenses planifiées
-// déclenchent « Avez-vous dépensé … ? » sur les appareils abonnés. Sans clés VAPID dans
-// .env, la fonction est simplement désactivée (l'appli propose alors le niveau 1 seul).
+// déclenchent « Avez-vous dépensé … ? » sur les appareils abonnés.
 
 const webpush = require("web-push");
 const db = require("./db");
 
-const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
-const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
 const SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@localhost";
 const TZ = process.env.APP_TZ || "Europe/Brussels";
 const PUSH_HOUR = Number(process.env.PUSH_HOUR || 9);
 const CHECK_MS = 5 * 60 * 1000;
-const ENABLED = !!(PUBLIC_KEY && PRIVATE_KEY);
-
-if (ENABLED) webpush.setVapidDetails(SUBJECT, PUBLIC_KEY, PRIVATE_KEY);
 
 db.db.exec(`
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint TEXT PRIMARY KEY,
     data TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS push_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS push_sent (
     mv_id TEXT NOT NULL,
@@ -30,6 +28,28 @@ db.db.exec(`
     PRIMARY KEY (mv_id, date)
   );
 `);
+
+// Clés VAPID : celles du .env si elles y sont, sinon générées au premier démarrage et
+// gardées dans la base (aucune étape manuelle). Les perdre obligerait à réactiver les
+// notifications sur chaque appareil.
+function loadKeys() {
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+  }
+  const get = (k) => { const r = db.db.prepare("SELECT value FROM push_config WHERE key = ?").get(k); return r ? r.value : null; };
+  let publicKey = get("vapid_public"), privateKey = get("vapid_private");
+  if (!publicKey || !privateKey) {
+    ({ publicKey, privateKey } = webpush.generateVAPIDKeys());
+    db.db.prepare("INSERT OR REPLACE INTO push_config (key, value) VALUES ('vapid_public', ?)").run(publicKey);
+    db.db.prepare("INSERT OR REPLACE INTO push_config (key, value) VALUES ('vapid_private', ?)").run(privateKey);
+  }
+  return { publicKey, privateKey };
+}
+const KEYS = loadKeys();
+const PUBLIC_KEY = KEYS.publicKey;
+const PRIVATE_KEY = KEYS.privateKey;
+const ENABLED = true;
+webpush.setVapidDetails(SUBJECT, PUBLIC_KEY, PRIVATE_KEY);
 
 // Date (AAAA-MM-JJ) et heure du moment dans le fuseau de l'appli.
 function localNow(now) {

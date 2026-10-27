@@ -33,7 +33,7 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 ## Commandes
 - Local : `npm install`, `cp .env.example .env`, `npm start` → http://localhost:3000 (`COOKIE_SECURE=false`).
 - Test isolé : lancer avec `PORT`, `DATA_DIR`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` dédiés (base vide) et injecter un état via `PUT /api/state`.
-- Push (facultatif) : `npm run vapid`, recopier `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (+ `APP_TZ`, `PUSH_HOUR`) dans `.env`, `npm install`, redémarrer ; activer ensuite dans Réglages > Notifications (iPhone : app installée). Sans clés : niveau 1 seul. Non testable dans le navigateur intégré (pas de service worker).
+- Push : clés VAPID générées au premier démarrage et gardées dans la table `push_config` (ou `VAPID_*` du `.env` si présentes ; ne jamais les perdre : il faudrait réactiver les notifications sur chaque appareil). Réglages `APP_TZ`, `PUSH_HOUR`. Activation dans Réglages > Notifications (iPhone : app installée). Non testable dans le navigateur intégré (pas de service worker).
 - Pas de tests automatisés ; vérifier au minimum `node --check public/app.js`.
 - Déploiement : VPS + pm2 + nginx, voir `README.md`. Le serveur (`/home/debian/fee-lezcomptes`) est un clone git : mise à jour = `git pull && npm install --omit=dev && pm2 restart fee-lezcomptes`.
 - Git : https://github.com/Gatomlo/feelezcomptes (public — ne jamais versionner `.env`, `test.env`, ni de base `*.db`).
