@@ -1648,8 +1648,7 @@
   }
   function defaultEnvelopeId(view) {
     if (currentPage === 'budget' && budgetDetailId && view.envelopes.some(function (e) { return e.id === budgetDetailId; })) return budgetDetailId;
-    var sorted = sortedByUse('envelope', pickerItems('envelope', view));
-    return sorted.length ? sorted[0].id : null;
+    return view.envelopes.length ? view.envelopes[0].id : null;
   }
   function defaultMovementDate(view) {
     var w = activeWeek(view);
