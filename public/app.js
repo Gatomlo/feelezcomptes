@@ -478,6 +478,15 @@
     if (m.fixedPaid[fixedId]) delete m.fixedPaid[fixedId]; else m.fixedPaid[fixedId] = true;
   }
 
+  // Ordre d'affichage des budgets récurrents : échange avec le voisin visible (dir = -1 ou +1).
+  function moveEnvelope(id, dir) {
+    var list = state.recurring.envelopes;
+    var visible = computeMonthView(state, selectedMonthKey, {}).envelopes.filter(function (e) { return !e.ephemeral; }).map(function (e) { return e.id; });
+    var n = visible[visible.indexOf(id) + dir];
+    var i = list.findIndex(function (e) { return e.id === id; }), j = list.findIndex(function (e) { return e.id === n; });
+    if (i < 0 || j < 0) return;
+    var t = list[i]; list[i] = list[j]; list[j] = t;
+  }
   function addEnvelope(name, amount, icon) { state.recurring.envelopes.push({ id: uid('env'), name: name, amount: amount, icon: icon || DEFAULT_ICON, startMonth: null, endMonth: null }); }
   // Arrête ce budget à partir de ce mois (les mois passés restent inchangés) —
   // même logique que endIncome/endFixed.
@@ -1366,7 +1375,7 @@
       var a = monthMode ? env.amount : env.effectiveWeeks[w], s = monthMode ? env.spentTotal : env.spentByWeek[w], p = monthMode ? env.amount : env.weeks[w];
       var pl = monthMode ? env.plannedTotal : env.plannedByWeek[w];
       return { env: env, alloc: a, spent: s, planned: pl, plan: p, report: monthMode ? 0 : Math.max(0, p - a), ratio: a > 0 ? (s + pl) / a : (s + pl > 0 ? 99 : 0) };
-    }).sort(function (a, b) { return b.ratio - a.ratio; });
+    });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
       // Dispo = prévu de la semaine − dépassement reporté de la semaine précédente ;
@@ -1658,7 +1667,7 @@
       return '<option value="' + p.id + '"' + (payId === p.id ? ' selected' : '') + '>' + p.icon + ' ' + esc(p.name) + '</option>';
     }).join('');
     var mvDate = mv ? mv.date : defaultMovementDate(view);
-    var askNow = !mv && mvDate > todayISO();
+    var askNow = false;
     return '<dialog class="sheet" id="movement-modal" aria-labelledby="mv-title">' +
       '<form class="sheet-body" data-form="add-movement" novalidate>' +
         '<div class="grabber"></div>' +
@@ -1721,7 +1730,7 @@
     var isInc = form.querySelector('input[name="type"]:checked').value === 'income';
     var future = (form.elements.date.value || '') > todayISO();
     form.querySelector('[data-role="planned-block"]').hidden = isInc;
-    form.querySelector('[data-role="planned-ask"]').hidden = isInc || !future || form.elements.plannedAnswered.value === '1';
+    form.querySelector('[data-role="planned-ask"]').hidden = true;
   }
   // Sélecteur plein écran (recherche, fréquents, liste complète) pour 20 budgets ou tags et plus.
   function openPicker(kind) {
@@ -2024,7 +2033,9 @@
         '<button type="button" class="budget-icon-lg icon-trigger" data-action="open-icon-modal" data-target="' + (eph ? 'eph-' : 'env-') + env.id + '" aria-label="Changer l’icône de ' + esc(env.name) + '">' + env.icon + '</button>' +
         '<input type="text" class="envelope-name-input" value="' + esc(env.name) + '" data-field="envelope-name" data-id="' + env.id + '"' + ephAttr + ' maxlength="40">' +
       '</span>' +
-      (eph ? '<span class="tag-extra">Éphémère</span>' : '') +
+      (eph ? '<span class="tag-extra">Éphémère</span>' :
+        '<button type="button" class="chip-btn" data-action="move-envelope" data-dir="-1" data-id="' + env.id + '" aria-label="Monter ' + esc(env.name) + '">↑</button>' +
+        '<button type="button" class="chip-btn" data-action="move-envelope" data-dir="1" data-id="' + env.id + '" aria-label="Descendre ' + esc(env.name) + '">↓</button>') +
       '<input type="color" class="color-picker" value="' + tagColor(env.id, monthKey) + '" data-field="envelope-color" data-id="' + env.id + '"' + ephAttr + ' aria-label="Couleur du budget ' + esc(env.name) + '">' +
       '<button type="button" class="palette-toggle" data-action="toggle-color-grid" data-target="env-' + env.id + '" aria-label="Palette de couleurs pour ' + esc(env.name) + '">🎨</button>' +
       '<button type="button" class="chip-btn" data-action="' + (eph ? 'remove-ephemeral-envelope' : 'remove-envelope') + '" data-id="' + env.id + '" aria-label="Supprimer ' + esc(env.name) + '">✕</button>' +
@@ -2603,6 +2614,7 @@
         break;
       case 'set-envelope-icon': mutate(function () { setEnvelopeIcon(id, btn.dataset.icon); iconModalTarget = null; }); break;
       case 'set-envelope-color-swatch': mutate(function () { setEnvelopeColor(id, btn.dataset.color); colorGridOpenFor = null; }); break;
+      case 'move-envelope': mutate(function () { moveEnvelope(id, parseInt(btn.dataset.dir, 10)); }); break;
       case 'remove-ephemeral-envelope': mutate(function () { removeEphemeralEnvelope(selectedMonthKey, id); }); break;
       case 'set-ephemeral-envelope-icon': mutate(function () { setEphemeralEnvelopeIcon(selectedMonthKey, id, btn.dataset.icon); iconModalTarget = null; }); break;
       case 'set-ephemeral-envelope-color-swatch': mutate(function () { setEphemeralEnvelopeColor(selectedMonthKey, id, btn.dataset.color); colorGridOpenFor = null; }); break;
@@ -2923,11 +2935,6 @@
       }
 
       var planned = mtype === 'expense' && !!form.elements.planned.checked;
-      if (mtype === 'expense' && date > todayISO() && form.elements.plannedAnswered.value !== '1') {
-        syncPlannedUi(form);
-        showToast('Date à venir : indique si la dépense est réelle ou planifiée.');
-        return;
-      }
       var invalidFields = [];
       if (Number.isNaN(amount) || amount <= 0) invalidFields.push('amount');
       if (invalidFields.length) {
