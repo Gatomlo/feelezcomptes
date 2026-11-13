@@ -9,6 +9,7 @@ const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const rateLimit = require("express-rate-limit");
+const helmet = require("helmet");
 const bcrypt = require("bcryptjs");
 
 const db = require("./db");
@@ -37,7 +38,40 @@ if (!sessionSecret || sessionSecret === "change-this-to-a-long-random-string") {
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: null,
+      },
+    },
+    // HSTS seulement en HTTPS (en local http://localhost, il gênerait).
+    strictTransportSecurity: process.env.COOKIE_SECURE === "true",
+  })
+);
 app.use(express.json({ limit: "2mb" }));
+
+// Anti-CSRF : une requête qui modifie des données doit venir de notre propre origine
+// (en-tête Origin, envoyé par les navigateurs sur les POST/PUT). Sans Origin (curl, service
+// worker same-origin), on laisse passer : le cookie SameSite=Lax couvre déjà le cross-site.
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
+  const origin = req.get("Origin");
+  if (origin && origin !== req.protocol + "://" + req.get("host")) {
+    return res.status(403).json({ error: "forbidden_origin" });
+  }
+  next();
+});
 
 const REMEMBER_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 jours
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000; // 12 heures si "se souvenir de moi" est décoché
@@ -128,7 +162,22 @@ app.post("/api/account/username", requireAuth, (req, res) => {
   res.json({ ok: true, username: trimmed });
 });
 
-app.post("/api/account/password", requireAuth, (req, res) => {
+// Déconnecte tous les autres appareils (après changement de mot de passe).
+function purgeOtherSessions(currentSid) {
+  try {
+    db.db.prepare("DELETE FROM sessions WHERE sid != ?").run(currentSid);
+  } catch (e) {}
+}
+
+const passwordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Trop de tentatives. Réessaie dans quelques minutes." },
+});
+
+app.post("/api/account/password", requireAuth, passwordLimiter, (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (typeof currentPassword !== "string" || typeof newPassword !== "string" || newPassword.length < 8) {
     return res.status(400).json({ error: "Le nouveau mot de passe doit contenir au moins 8 caractères." });
@@ -143,6 +192,7 @@ app.post("/api/account/password", requireAuth, (req, res) => {
     }
     const hash = bcrypt.hashSync(newPassword, 12);
     db.updatePasswordHash(user.id, hash);
+    purgeOtherSessions(req.sessionID);
     res.json({ ok: true });
   });
 });
@@ -156,10 +206,26 @@ app.get("/api/state", requireAuth, (req, res) => {
   res.json(db.getState());
 });
 
+// Les `id` sont réinjectés dans des attributs HTML par le front : on refuse tout id
+// qui ne ressemble pas à ceux générés par l'appli (prefixe_base36), pour fermer l'auto-XSS.
+const SAFE_ID = /^[\w.:-]{1,80}$/;
+function hasUnsafeId(node, depth) {
+  if (depth > 12 || node === null || typeof node !== "object") return false;
+  if (Array.isArray(node)) return node.some((n) => hasUnsafeId(n, depth + 1));
+  return Object.keys(node).some((k) => {
+    const v = node[k];
+    if (k === "id" && typeof v === "string") return !SAFE_ID.test(v);
+    return hasUnsafeId(v, depth + 1);
+  });
+}
+
 app.put("/api/state", requireAuth, (req, res) => {
   const state = req.body;
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     return res.status(400).json({ error: "Format invalide." });
+  }
+  if (hasUnsafeId(state, 0)) {
+    return res.status(400).json({ error: "Identifiant invalide dans l'état." });
   }
   // X-Base-Version : version sur laquelle le client a construit son etat. Si elle est
   // depassee, 409 avec l'etat actuel : le client fusionne ses modifications et renvoie.

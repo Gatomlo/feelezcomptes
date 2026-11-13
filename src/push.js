@@ -144,6 +144,18 @@ function resolvePlanned(id, action) {
   return true;
 }
 
+// Le serveur envoie des requêtes à l'endpoint : on le limite aux services push connus
+// (FCM, Mozilla, Apple, Windows) pour éviter qu'il serve à atteindre des adresses internes.
+const PUSH_HOSTS = [
+  /(^|\.)googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /(^|\.)push\.apple\.com$/, /(^|\.)notify\.windows\.com$/,
+];
+function isPushEndpoint(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && PUSH_HOSTS.some((re) => re.test(u.hostname));
+  } catch (e) { return false; }
+}
+
 function mount(app, requireAuth) {
   app.get("/api/push/key", requireAuth, (req, res) => {
     res.json({ enabled: ENABLED, key: ENABLED ? PUBLIC_KEY : null });
@@ -153,6 +165,7 @@ function mount(app, requireAuth) {
     const sub = req.body;
     if (!ENABLED) return res.status(503).json({ error: "Notifications non configurées sur le serveur." });
     if (!sub || typeof sub.endpoint !== "string" || !sub.keys) return res.status(400).json({ error: "Abonnement invalide." });
+    if (!isPushEndpoint(sub.endpoint)) return res.status(400).json({ error: "Service de notification non reconnu." });
     db.db.prepare("INSERT OR REPLACE INTO push_subscriptions (endpoint, data) VALUES (?, ?)").run(sub.endpoint, JSON.stringify(sub));
     res.json({ ok: true });
   });

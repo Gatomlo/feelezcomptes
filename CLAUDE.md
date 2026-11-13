@@ -30,6 +30,13 @@ Appli web (PWA) de budget du foyer : revenus, dépenses fixes, budgets (envelopp
 - Mouvements : toucher une ligne dévoile Modifier / Supprimer (`revealedMovementId`) ; suppression avec « Annuler » dans le toast (`#toast` hors de `#app`, `showToast(msg, libellé, fn)`). Filtres : type, budget, tag, mode de paiement (`'none'` = sans). Vues : semaine, budget, tag, paiement.
 - Les réglages réutilisent les anciens formulaires (`data-field` traités par `onChange`), restylés.
 
+## Sécurité (audit nov. 2026)
+- `helmet` + CSP stricte (`script-src 'self'` : pas de script inline, le SW est enregistré par `public/sw-register.js` ; styles inline autorisés). HSTS seulement si `COOKIE_SECURE=true`.
+- Anti-CSRF : les POST/PUT/DELETE de `/api` avec un en-tête `Origin` étranger → 403.
+- Changement de mot de passe : limité (10/15 min) et déconnecte les autres appareils.
+- `PUT /api/state` refuse les `id` hors `[\w.:-]{1,80}` (ils sont réinjectés en attributs HTML). Endpoint push limité aux services connus (FCM, Mozilla, Apple, Windows).
+- En production, refus du démarrage si `ADMIN_PASSWORD` est par défaut/trop court (premier démarrage) ou `SESSION_SECRET` manquant.
+
 ## Commandes
 - Local : `npm install`, `cp .env.example .env`, `npm start` → http://localhost:3000 (`COOKIE_SECURE=false`).
 - Test isolé : lancer avec `PORT`, `DATA_DIR`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` dédiés (base vide) et injecter un état via `PUT /api/state`.

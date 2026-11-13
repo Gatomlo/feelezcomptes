@@ -55,6 +55,11 @@ function ensureDefaultUser() {
   if (count > 0) return;
   const username = process.env.ADMIN_USERNAME || "foyer";
   const password = process.env.ADMIN_PASSWORD || "change-me-now";
+  if (process.env.NODE_ENV === "production" && (password === "change-me-now" || password.length < 8)) {
+    throw new Error(
+      "[Fée Lezcomptes] ADMIN_PASSWORD manquant, par défaut ou trop court (< 8) : définis-en un vrai dans .env avant le premier démarrage en production."
+    );
+  }
   const hash = bcrypt.hashSync(password, 12);
   db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)").run(username, hash);
   console.warn(
