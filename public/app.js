@@ -1344,10 +1344,12 @@
     var available = view.totalIncome - view.recurringFixedDue;
     var spentPct = pct(Math.max(0, netSpent), available);
     var plannedPct = Math.min(100 - spentPct, pct(planned, available));
+    var fixedLeft = view.fixedLines.filter(function (f) { return !f.paid; }).reduce(function (s, f) { return s + f.amount; }, 0);
     var hero = '<section class="hero">' +
       '<div class="hero-top"><div><span class="hero-cap">Reste à dépenser' + infoBtn('hero', 'Explication du reste à dépenser') + '</span>' +
         '<span class="hero-amount' + (reste < 0 ? ' neg' : '') + '">' + fmt(reste) + '</span>' +
         (planned > 0 ? '<span class="hero-plan">' + svg('calendar', 13) + '<b>' + fmtShort(planned) + '</b> planifiés</span>' : '') +
+        (fixedLeft > 0 ? '<span class="hero-plan">' + svg('calendar', 13) + '<b>' + fmtShort(fixedLeft) + '</b> de frais fixes à payer</span>' : '') +
         '<span class="hero-sub' + (view.endingBalance < 0 ? ' neg' : '') + '">Solde actuel (fixes payés) <b>' + fmt(view.endingBalance) + '</b></span></div>' +
         '<span class="hero-badge">' + monthStatusLabel(selectedMonthKey) + '</span></div>' +
       '<div class="hero-gauge">' +

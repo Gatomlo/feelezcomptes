@@ -501,7 +501,7 @@ dialog { color: var(--ink); }
 .hero-plan { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--dark-muted); }
 .hero-plan b { color: var(--cream, #fff); font-weight: 800; }
 .budget-tile .bar { position: relative; }
-.tile-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; white-space: nowrap; min-width: 0; }
+.tile-foot-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px 6px; white-space: nowrap; min-width: 0; }
 .tile-planned { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 800; color: var(--accent); }
 .hero-plan { display: flex; align-items: center; gap: 5px; }
 .hero-stats.four { grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 10px; }
