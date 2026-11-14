@@ -1518,16 +1518,17 @@
       }).join('') + '</div>';
     }
 
-    if (q || fcount) {
-      var res = filterMovements(view.allMovements, q, ctx);
-      html += '<div class="block-head"><h2>' + countLabel(res.length) + '</h2><span class="grp-total">' + signedFmt(signedTotal(res)) + '</span></div>' +
-        moveListHtml(res, ctx, 'Aucun mouvement ne correspond.') +
-        '<button type="button" class="btn-ghost" data-action="clear-filters">Effacer la recherche et les filtres</button>';
-      return html;
-    }
-
-    html += '<div class="block-head"><h2>' + curView.title + '</h2><button type="button" class="link" data-action="open-view-sheet">Changer de vue</button></div>';
+    var filtering = !!(q || fcount);
     var moves = view.allMovements;
+    if (filtering) {
+      moves = filterMovements(view.allMovements, q, ctx);
+      html += '<div class="block-head"><h2>' + countLabel(moves.length) + '</h2><span class="grp-total">' + signedFmt(signedTotal(moves)) + '</span></div>';
+      if (!moves.length) {
+        return html + '<p class="empty-note">Aucun mouvement ne correspond.</p>' +
+          '<button type="button" class="btn-ghost" data-action="clear-filters">Effacer la recherche et les filtres</button>';
+      }
+    }
+    html += '<div class="block-head"><h2>' + curView.title + '</h2><button type="button" class="link" data-action="open-view-sheet">Changer de vue</button></div>';
     var groups = [];
     if (movementGroupBy === 'budget') {
       view.envelopes.forEach(function (env) {
@@ -1563,11 +1564,19 @@
           color: i === cur ? 'var(--accent)' : 'var(--peach)', right: '<span class="' + (spent > alloc ? 'neg' : '') + '">' + fmt(spent) + '</span><small>/ ' + fmt(alloc) + '</small>', moves: wl, isCur: i === cur });
       }
     }
+    if (filtering) {
+      groups = groups.filter(function (g) { return g.moves.length; }).map(function (g) {
+        g.right = signedFmt(signedTotal(g.moves));
+        g.meta = g.meta.split(' · ')[0].indexOf('mouvement') >= 0 && movementGroupBy !== 'week' ? countLabel(g.moves.length) : g.meta;
+        return g;
+      });
+    }
     var anyOpen = groups.some(function (g) { return openAccordions.has(g.key); });
     html += '<div class="grp-list">' + groups.map(function (g, idx) {
-      var def = !anyOpen && (movementGroupBy === 'week' ? (g.isCur || (idx === 0 && currentWeekIndex(view) < 0)) : false);
+      var def = !anyOpen && (filtering ? idx === 0 : movementGroupBy === 'week' ? (g.isCur || (idx === 0 && currentWeekIndex(view) < 0)) : false);
       return groupHtml(g.key, g.title, g.meta, g.color, g.right, g.moves, ctx, def);
     }).join('') + '</div>';
+    if (filtering) html += '<button type="button" class="btn-ghost" data-action="clear-filters">Effacer la recherche et les filtres</button>';
     return html;
   }
 
