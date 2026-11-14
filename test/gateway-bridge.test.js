@@ -58,3 +58,12 @@ test("aucun compte cree : inconnu, anonyme ou sans droit => pas connecte", async
   }
   assert.equal(db.db.prepare("SELECT COUNT(*) AS n FROM users").get().n, 1);
 });
+
+test('crochet gatewayAccounts : liste des comptes pour l\'administration de la passerelle, sans aucun secret', () => {
+  const list = app.gatewayAccounts();
+  assert.ok(Array.isArray(list) && list.length >= 1, 'au moins un compte');
+  for (const a of list) {
+    assert.ok(a.key, 'cle a saisir dans « compte local »');
+    assert.doesNotMatch(JSON.stringify(a), /hash|passw|token|secret|scrypt|bcrypt/i);
+  }
+});

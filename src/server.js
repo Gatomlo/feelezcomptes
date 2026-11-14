@@ -269,4 +269,7 @@ if (require.main === module) {
     console.log("[Fée Lezcomptes] Serveur démarré sur http://localhost:" + PORT);
   });
 }
+// Liste des comptes pour l'administration de node-gateway (lecture seule, facultatif : voir node-gateway/README).
+app.gatewayAccounts = () => db.db.prepare("SELECT username FROM users ORDER BY username").all().map((u) => ({ key: u.username, login: u.username, name: u.username }));
+
 module.exports = app;
