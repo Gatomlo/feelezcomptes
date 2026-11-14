@@ -76,8 +76,14 @@ app.use("/api", (req, res, next) => {
 const REMEMBER_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 jours
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000; // 12 heures si "se souvenir de moi" est décoché
 
-app.use(
-  session({
+// Cookie de session limite au chemin de montage (/feelezcomptes/ sous la passerelle, / seul) : il n'est plus envoye aux autres
+// outils de la passerelle. Le chemin n'est connu qu'a la premiere requete : un middleware de session par chemin.
+const sessionByMount = new Map();
+function sessionFor(req) {
+  const mount = req.app && typeof req.app.mountpath === "string" && req.app.mountpath !== "/" ? req.app.mountpath : "";
+  if (!sessionByMount.has(mount)) {
+    const cookiePath = mount + "/";
+    sessionByMount.set(mount, session({
     store: new SqliteSessionStore(),
     secret: sessionSecret,
     name: "fee_lezcomptes_sid",
@@ -85,13 +91,17 @@ app.use(
     saveUninitialized: false,
     rolling: true,
     cookie: {
+      path: cookiePath,
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.COOKIE_SECURE === "true",
       maxAge: SESSION_MAX_AGE,
     },
-  })
-);
+  }));
+  }
+  return sessionByMount.get(mount);
+}
+app.use((req, res, next) => sessionFor(req)(req, res, next));
 
 // Connexion centralisee de node-gateway (voir gatewayLogin.js) : sans effet hors passerelle.
 app.use(require("./gatewayLogin"));

@@ -38,6 +38,7 @@ test("identifiant de la passerelle -> compte local de meme identifiant (cookie c
   assert.equal(j.username, "foyer");
   const cookie = r.headers.get("set-cookie");
   assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Path=\/outil\//, "cookie limite au chemin de montage");
   const exp = new Date(/Expires=([^;]+)/.exec(cookie)[1]).getTime() - Date.now();
   assert.ok(exp > 60 * 60 * 1000 && exp <= 2 * 60 * 60 * 1000 + 5000, "cookie de 2 h au plus, obtenu " + exp);
   const again = await session({ ...gw("foyer"), cookie: cookie.split(";")[0] });
