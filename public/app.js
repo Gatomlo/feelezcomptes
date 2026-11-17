@@ -341,6 +341,12 @@
     return true;
   }
 
+  // Dépassement reporté de la semaine précédente, hors prêts/couvertures de dernière semaine.
+  function envCarryIn(env, w) {
+    var last = w === env.weeks.length - 1;
+    return Math.max(0, env.weeks[w] - env.effectiveWeeks[w] - (last ? (env.lent || 0) : 0) + (last ? (env.covered || 0) : 0));
+  }
+
   function computeMonthView(st, key, cache) {
     if (cache[key]) return cache[key];
     var carry = 0;
@@ -427,12 +433,35 @@
           .reduce(function (s, m) { return s + m.amount; }, 0);
       });
       var plannedEnvTotal = plannedByWeek.reduce(function (a, b) { return a + b; }, 0);
-      return { id: env.id, name: env.name, icon: env.icon || DEFAULT_ICON, amount: amount, weeksCount: weeksCount, weeks: weeks, effectiveWeeks: effectiveWeeks, movements: allMovements.filter(function (m) { return m.envelopeId === env.id; }), spentByWeek: spentByWeek, plannedByWeek: plannedByWeek, plannedTotal: plannedEnvTotal, spentTotal: spentTotal, remaining: amount - spentTotal - plannedEnvTotal, ephemeral: !!isEphemeral };
+      return { id: env.id, name: env.name, icon: env.icon || DEFAULT_ICON, amount: amount, weeksCount: weeksCount, weeks: weeks, effectiveWeeks: effectiveWeeks, committedByWeek: committedByWeek, movements: allMovements.filter(function (m) { return m.envelopeId === env.id; }), spentByWeek: spentByWeek, plannedByWeek: plannedByWeek, plannedTotal: plannedEnvTotal, spentTotal: spentTotal, remaining: amount - spentTotal - plannedEnvTotal, ephemeral: !!isEphemeral };
     }
     var envelopes = st.recurring.envelopes.filter(function (env) {
       return isActiveInMonth(env, key) && (monthData.removedEnvelopes || []).indexOf(env.id) === -1;
     }).map(function (env) { return computeEnvelopeView(env, false); })
       .concat((monthData.ephemeralEnvelopes || []).map(function (env) { return computeEnvelopeView(env, true); }));
+    // Dernière semaine du mois : un dépassement ne peut plus être reporté sur une semaine
+    // suivante, il est prélevé sur les autres budgets qui ont encore du reste cette semaine-là
+    // (le plus gros reste d'abord). env.covered = montant couvert par d'autres ; env.lent =
+    // montant prêté ; env.coveredBy / env.lentTo = noms associés.
+    (function () {
+      var L = weeksCount - 1;
+      if (L < 0) return;
+      var real = envelopes.filter(function (e) { return !e.ephemeral; });
+      real.forEach(function (e) { e.covered = 0; e.lent = 0; e.coveredBy = []; e.lentTo = []; });
+      real.forEach(function (e) {
+        var need = e.committedByWeek[L] - e.effectiveWeeks[L];
+        if (need <= 0.004) return;
+        var donors = real.filter(function (d) { return d !== e && d.effectiveWeeks[L] - d.committedByWeek[L] > 0.004; })
+          .sort(function (a, b) { return (b.effectiveWeeks[L] - b.committedByWeek[L]) - (a.effectiveWeeks[L] - a.committedByWeek[L]); });
+        donors.forEach(function (d) {
+          if (need <= 0.004) return;
+          var take = Math.min(need, d.effectiveWeeks[L] - d.committedByWeek[L]);
+          d.effectiveWeeks[L] -= take; d.lent += take; d.lentTo.push(e.name);
+          e.effectiveWeeks[L] += take; e.covered += take; e.coveredBy.push(d.name);
+          need -= take;
+        });
+      });
+    })();
     var totalEnvelopeBudget = envelopes.reduce(function (s, e) { return s + e.amount; }, 0);
     var totalEnvelopeSpent = envelopes.reduce(function (s, e) { return s + e.spentTotal; }, 0);
     var plannedRemaining = available - recurringFixedTotal - totalEnvelopeBudget;
@@ -1376,7 +1405,7 @@
     var ranked = view.envelopes.map(function (env) {
       var a = monthMode ? env.amount : env.effectiveWeeks[w], s = monthMode ? env.spentTotal : env.spentByWeek[w], p = monthMode ? env.amount : env.weeks[w];
       var pl = monthMode ? env.plannedTotal : env.plannedByWeek[w];
-      return { env: env, alloc: a, spent: s, planned: pl, plan: p, report: monthMode ? 0 : Math.max(0, p - a), ratio: a > 0 ? (s + pl) / a : (s + pl > 0 ? 99 : 0) };
+      return { env: env, alloc: a, spent: s, planned: pl, plan: p, report: monthMode ? 0 : envCarryIn(env, w), covered: monthMode || w !== env.weeks.length - 1 ? 0 : (env.covered || 0), lent: monthMode || w !== env.weeks.length - 1 ? 0 : (env.lent || 0), coveredBy: env.coveredBy || [], lentTo: env.lentTo || [], ratio: a > 0 ? (s + pl) / a : (s + pl > 0 ? 99 : 0) };
     });
     var shown = showAllBudgets ? ranked : ranked.slice(0, 6);
     var tiles = shown.map(function (r) {
@@ -1394,6 +1423,8 @@
         '<span class="tile-foot-row">' + (monthMode ? '<span class="tile-foot">sur <b>' + fmtShort(r.plan) + '</b></span>'
           : '<span class="tile-foot">dispo <b' + (r.report ? ' class="cut"' : '') + '>' + fmtShort(r.alloc).replace(/\s*€$/, '') + '</b>/' + fmtShort(r.plan) + '</span>') +
         (r.planned > 0 ? '<span class="tile-planned" title="Planifié">' + svg('calendar', 12) + fmtShort(r.planned) + '</span>' : '') + '</span>' +
+        (r.covered > 0.004 ? '<span class="tile-foot">couvert : ' + fmtShort(r.covered) + ' (' + esc(r.coveredBy.join(', ')) + ')</span>' : '') +
+        (r.lent > 0.004 ? '<span class="tile-foot">prêté : ' + fmtShort(r.lent) + ' (' + esc(r.lentTo.join(', ')) + ')</span>' : '') +
         '</button>';
     }).join('');
     var budgetsBlock = view.envelopes.length
@@ -1413,7 +1444,7 @@
       '<section class="block"><div class="block-head"><h2>Budgets' + infoBtn('budgets', 'Explication des cartes budget') + '</h2>' +
         '<span class="seg" role="group" aria-label="Période des budgets"><button type="button" data-action="budget-mode" data-mode="week" aria-pressed="' + !monthMode + '">Semaine</button><button type="button" data-action="budget-mode" data-mode="month" aria-pressed="' + monthMode + '">Mois</button></span></div>' +
       '<p class="block-sub">' + (monthMode ? 'Reste sur le mois' : weekRangeLabel(selectedMonthKey, w).replace('-', ' → ')) + '</p>' +
-        infoText('budgets', '<b>Grand chiffre</b> : ce qu’il reste réellement à dépenser cette semaine (dispo − dépensé).<br><b>Dispo / prévu</b> : le prévu de la semaine, diminué du dépassement de la semaine précédente (en rouge quand il y a un report).<br><b>Jauge</b> : dépensé par rapport au dispo.<br>En vue <b>Mois</b> : reste du budget sur tout le mois.') +
+        infoText('budgets', '<b>Grand chiffre</b> : ce qu’il reste réellement à dépenser cette semaine (dispo − dépensé).<br><b>Dispo / prévu</b> : le prévu de la semaine, diminué du dépassement de la semaine précédente (en rouge quand il y a un report). En dernière semaine, un dépassement est prélevé sur les autres budgets qui ont encore du reste.<br><b>Jauge</b> : dépensé par rapport au dispo.<br>En vue <b>Mois</b> : reste du budget sur tout le mois.') +
         budgetsBlock + '</section>' +
       '<section class="block"><div class="block-head"><h2>' + (w === cur ? 'Cette semaine' : 'Semaine ' + (w + 1)) + '</h2>' +
         '<button type="button" class="link" data-action="nav-movements">Tout voir</button></div>' +
@@ -1448,7 +1479,9 @@
           '<span class="ring-center"><b>' + fmt(rem) + '</b><span>' + (over ? 'dépassé' : 'restants') + '</span></span></div>' +
         '<div class="ring-facts"><span class="muted-sm">Semaine ' + (w + 1) + ' · ' + weekRangeLabel(selectedMonthKey, w) + '</span>' +
           '<div class="fact"><span>Prévu</span><b>' + fmt(env.weeks[w]) + '</b></div>' +
-          (env.weeks[w] - alloc > 0.004 ? '<div class="fact report"><span>Report S' + w + '</span><b>−' + fmt(env.weeks[w] - alloc) + '</b></div>' : '') +
+          (envCarryIn(env, w) > 0.004 ? '<div class="fact report"><span>Report S' + w + '</span><b>−' + fmt(envCarryIn(env, w)) + '</b></div>' : '') +
+          (w === env.weeks.length - 1 && env.covered > 0.004 ? '<div class="fact"><span>Couvert par ' + esc(env.coveredBy.join(', ')) + '</span><b>+' + fmt(env.covered) + '</b></div>' : '') +
+          (w === env.weeks.length - 1 && env.lent > 0.004 ? '<div class="fact report"><span>Prêté à ' + esc(env.lentTo.join(', ')) + '</span><b>−' + fmt(env.lent) + '</b></div>' : '') +
           '<div class="fact"><span>Dépensé</span><b>' + fmt(spent) + '</b></div>' +
           (plannedW > 0 ? '<div class="fact"><span>Planifié</span><b>' + fmt(plannedW) + '</b></div>' : '') +
           '<div class="fact sep"><span>Mois</span><b>' + fmt(env.spentTotal) + (env.plannedTotal > 0 ? ' + ' + fmt(env.plannedTotal) + ' planifiés' : '') + ' / ' + fmt(env.amount) + '</b></div>' +
